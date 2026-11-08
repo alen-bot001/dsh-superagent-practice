@@ -483,7 +483,7 @@ it('relays an allowed sender\'s mention in a new Issue as an explicit candidate 
   await pollRound(runtime.context(githubKind))
   await runtime.idle()
   const candidate = relays(runtime.masterId).at(-1)
-  expect(candidate).toMatchObject({ kind: 'candidate', strength: 'explicit', trigger_id: key('github-issue', '12'), thread: 'github:acme/widgets#12' })
+  expect(candidate).toMatchObject({ kind: 'candidate', strength: 'explicit', trigger_id: key('github-issue', 'acme/widgets#12'), thread: 'github:acme/widgets#12' })
 })
 
 it('ignores an allowed sender\'s new Issue that does not mention the agent, and an unlisted sender\'s mention, from the poll that reads them', async () => {
@@ -498,7 +498,7 @@ it('ignores an allowed sender\'s new Issue that does not mention the agent, and 
     await pollRound(runtime.context(githubKind))
     await runtime.idle()
   await runtime.idle()
-    return key('github-issue', String(number))
+    return key('github-issue', `acme/widgets#${number}`)
   }
   const quiet = await poll(12, 'The login page fails after the update', 'alice')
   expect(runtime.store.decisions.byThread('github:acme/widgets#12')).toEqual([expect.objectContaining({ kind: 'ignore', reason: [{ code: 'no_mention', triggerId: quiet }] })])

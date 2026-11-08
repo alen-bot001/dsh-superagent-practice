@@ -1,7 +1,7 @@
 /** Probes repository and account CLIs, configures the worker execution environment and command shims, and tracks setup readiness. */
 import type { Context } from '@deepseek-ai/cordis'
 import { UserError } from '../core/index.ts'
-import { SETUP_FIELDS, resolveDeployment, resolveFeishuBot, workerProbe, type Deployment, type Machine } from '../deployment.ts'
+import { FeishuBotSchema, GithubAccountsSchema, SETUP_FIELDS, resolveDeployment, resolveFeishuBot, workerProbe, type Deployment, type Machine } from '../deployment.ts'
 import { agentVariables, applyEnvironment, verifyEnvironment, withoutDirectory, workerBin, writeEnvironment } from '../infra/environment.ts'
 import type { Settings, SettingsBlock } from '../policy.ts'
 import { SetupError, type SetupProblem } from '../setup.ts'
@@ -13,8 +13,18 @@ export interface SetupHost {
   restart(): void
 }
 
+const setupSchemas: Record<string, { safeParse(value: unknown): { success: boolean; data?: unknown } }> = { github: GithubAccountsSchema, feishu: FeishuBotSchema }
+// Compare the configuration a save would store, not the raw one: the schema fills in defaults (such as an empty
+// `repositories`), so reading the raw value would make a row-editor field look like a setup change on every save.
+const setupConfig = (id: string, config: unknown): Record<string, unknown> => {
+  const parsed = setupSchemas[id]?.safeParse(config ?? {})
+  return (parsed?.success ? parsed.data : config ?? {}) as Record<string, unknown>
+}
 const setupFields = (settings: Settings) =>
-  JSON.stringify(Object.entries(SETUP_FIELDS).map(([id, keys]) => keys.map(key => settings.sources[id]?.config[key] ?? '')))
+  JSON.stringify(Object.entries(SETUP_FIELDS).map(([id, keys]) => {
+    const config = setupConfig(id, settings.sources[id]?.config)
+    return keys.map(key => config[key] ?? '')
+  }))
 export const setupChanged = (before: Settings, after: Settings): boolean => setupFields(before) !== setupFields(after)
 
 /**

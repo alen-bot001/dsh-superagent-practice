@@ -16,11 +16,26 @@ export type ReceiveResult = 'stored' | 'duplicate' | 'filtered'
 export class Intake extends EnginePart {
   constructor(options: EngineOptions, private readonly tickets: Tickets) { super(options) }
 
+  /**
+   * The ID the same event carried before Thread IDs named their repository: such a Trigger is keyed by its bare
+   * number, so it is the Trigger this event already stored. Two repositories may each have a #12, so a Trigger whose
+   * repository is unknown is not matched at all rather than guessed.
+   */
+  private legacyId(trigger: Trigger): string | undefined {
+    const { repository, number } = trigger.meta as { repository?: unknown; number?: unknown }
+    const { kind } = trigger.meta as { kind?: unknown }
+    if (trigger.source !== 'github' || kind !== 'issue' || typeof repository !== 'string' || typeof number !== 'number') return undefined
+    const legacy = key('github-issue', String(number))
+    const stored = this.repo.triggers.get(legacy)
+    const named = String((stored?.meta as { repository?: unknown } | undefined)?.repository ?? '')
+    return stored && named.toLowerCase() === repository.toLowerCase() ? legacy : undefined
+  }
+
   receive(received: Trigger): ReceiveResult {
     // Normalize source timestamps (such as GitHub whole seconds) to canonical ISO form.
     const trigger = { ...received, at: isoTime(received.at) }
     if (!trigger.threads.length) throw new Error('A trigger must belong to at least one thread')
-    if (this.repo.triggers.get(trigger.id)) return 'duplicate'
+    if (this.repo.triggers.get(this.legacyId(trigger) ?? trigger.id)) return 'duplicate'
     const at = this.now()
     const filter = this.options.scope.scope(trigger)
     if (!filter.listened) {

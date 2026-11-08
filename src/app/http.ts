@@ -219,10 +219,13 @@ function match(table: Routes, method: string, segments: string[]) {
   for (const [route, run] of Object.entries(table)) {
     const [verb, path] = route.split(' ') as [string, string]
     const pattern = path.split('/')
-    const fits = pattern.length === segments.length && pattern.every((part, index) => part.startsWith(':') || part === segments[index])
+    // A Thread ID names its repository with `/`, so the last parameter takes every remaining segment.
+    const tail = pattern.length - 1
+    const fits = pattern.length <= segments.length && pattern.every((part, index) => part.startsWith(':') || part === segments[index])
+      && (pattern.length === segments.length || pattern[tail]!.startsWith(':'))
     if (verb !== method || !fits) continue
     const params: Record<string, string> = {}
-    pattern.forEach((part, index) => { if (part.startsWith(':')) params[part.slice(1)] = decoded(segments[index]!) })
+    pattern.forEach((part, index) => { if (part.startsWith(':')) params[part.slice(1)] = decoded(index === tail ? segments.slice(index).join('/') : segments[index]!) })
     return { run: run as (input: Input<keyof Api>) => unknown, params }
   }
   return undefined
@@ -233,11 +236,13 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
   const disposers = [
     ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
-      if (!url.pathname.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
+      // The raw path, not `url.pathname`: a Thread ID names its repository with `#`, which a URL reads as a fragment.
+      const path = (req.url ?? '/').split('?')[0] ?? '/'
+      if (!path.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
       if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
       try {
         await runtime.ready
-        const route = match(table, req.method ?? 'GET', url.pathname.slice('/orchestrator/api/'.length).split('/'))
+        const route = match(table, req.method ?? 'GET', path.slice('/orchestrator/api/'.length).split('/'))
         if (!route) throw new RouteError(404, 'Unknown operation')
         const query = Object.fromEntries(url.searchParams)
         json(res, 200, await route.run({ params: route.params as never, query, body: maxBytes => readBody(req, maxBytes) }))

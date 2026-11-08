@@ -112,7 +112,7 @@ describe('Source registry', () => {
     sources.register(feishuKind); sources.register(githubKind)
     // A bare number names a repository's Issue only when the Source watches one repository; no configuration yet
     // leaves it ambiguous, so it names nothing.
-    expect(sources.find('#12')).toEqual({ threads: [], terms: [] })
+    expect(() => sources.find('#12')).toThrow(/owner\/name#12/)
     expect(sources.find('acme/widgets#12')).toEqual({ threads: ['github:acme/widgets#12'], terms: [] })
     expect(sources.find('https://github.com/acme/widgets/pull/7#issuecomment-3')).toEqual({ threads: ['github:acme/widgets#7'], terms: [] })
     expect(sources.find('see om_abc and om_abc, om_def')).toEqual({ threads: [], terms: ['om_abc', 'om_def'] })

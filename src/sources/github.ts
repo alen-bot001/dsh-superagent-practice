@@ -80,7 +80,10 @@ export const githubKind: SourceKind<GithubConfig> = {
       return { threads: known ? [thread(wanted[1]!, Number(wanted[2]))] : [], terms: [] }
     }
     if (!bare) return { threads: [], terms: [] }
-    return { threads: watched.length === 1 ? [thread(watched[0]!, Number(bare[1]))] : [], terms: [] }
+    // A bare number names the Issue of that number in each watched repository; with no repository known it names nothing,
+    // and saying so beats a silently empty search.
+    if (!watched.length) throw new Error('Name the repository: write owner/name#12, because two repositories may each have a #12')
+    return { threads: watched.map(name => thread(name, Number(bare[1]))), terms: [] }
   },
   policy: {
     schema: z.object({ allowed: z.array(z.object({ id: z.string().regex(/^[A-Za-z0-9-]+$/) }).strict()).default([]),
