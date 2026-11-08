@@ -8,7 +8,7 @@ import { runFeishu } from '../src/sources/feishu-loops.ts'
 import { commentTrigger, githubAddress, githubChannel, issueTrigger, type GithubComment, type GithubIssue } from '../src/sources/github-trigger.ts'
 import { claimPull, observePull, pullEndNotices, pullOf, ticketBranch, type Pull } from '../src/sources/github-pull.ts'
 import { ciCounts, ciFact, ciSummary } from '../src/sources/github-read.ts'
-import { apply as applyGithub, githubKind, pollFailure, pollRound } from '../src/sources/github.ts'
+import { apply as applyGithub, githubKind, pollFailure, pollRound, pruneNotices } from '../src/sources/github.ts'
 import { pollThreads as pollGithubThreads } from '../src/sources/github.ts'
 import { SourceRegistry } from '../src/sources/registry.ts'
 import { cursorAt, POLL_HORIZON_MS } from '../src/sources/poll.ts'
@@ -16,6 +16,7 @@ import { Store } from '../src/app/store.ts'
 import { Commands, commandError } from '../src/infra/commands.ts'
 import { HealthBoard } from '../src/infra/health.ts'
 import { testDeployment } from './fixtures/deployment.ts'
+import type { Deployment } from '../src/deployment.ts'
 import { SettingsSchema, settingsPolicy } from '../src/policy.ts'
 import { sourceContextOf, type SourceContextDeps } from '../src/app/source-context.ts'
 import { SetupError, type SetupProblem } from '../src/setup.ts'
@@ -871,7 +872,8 @@ describe('github source', () => {
     notify(h, [issue(12, { created_at: new Date(Date.now() - 1000).toISOString() })], {}, new Date(Date.now() - 60_000).toISOString())
     await pollRound(h)
     await pollRound(h)
-    expect(h.receive).toHaveBeenCalledTimes(2)
+    // The second round lists the same notification again inside the lookback window and skips it by ID, so the body is read once.
+    expect(h.receive).toHaveBeenCalledTimes(1)
     expect(h.store.read.threadTriggers('github:acme/widgets#12', 10).map(trigger => trigger.id)).toEqual([key('github-issue', 'acme/widgets#12')])
     expect(h.store.decisions.byThread('github:acme/widgets#12').map(decision => decision.triggerIds)).toEqual([[key('github-issue', 'acme/widgets#12')]])
     h.store.close()
@@ -1025,7 +1027,7 @@ it('reports GitHub as failing only after the configured number of consecutive fa
   expect(pollFailure(1, 3, eof)).toBeUndefined()
   expect(pollFailure(2, 3, eof)).toBeUndefined()
   expect(pollFailure(3, 3, eof)).toEqual({ state: 'error', detail: '3 consecutive failed polls; last: Error: Get "https://api.github.com/x": EOF', code: 'pollFailures', values: { count: '3', error: 'Error: Get "https://api.github.com/x": EOF' } })
-  expect(githubKind.schema.parse({})).toEqual({ repository: '', repositories: [], cli: '', pollSeconds: 60, failuresBeforeError: 3, observeIssues: false,
+  expect(githubKind.schema.parse({})).toEqual({ repository: '', repositories: [], cli: '', pollSeconds: 60, lookbackSeconds: 900, failuresBeforeError: 3, observeIssues: false,
     observePulls: false, observeComments: false, observeCi: false })
 })
 describe('feishu event consumer', () => {
@@ -1405,5 +1407,87 @@ describe('observing the GitHub repository', () => {
       meta: { ci: true, branch: 'main', sha: 'bbb2222' }, url: 'https://github.com/acme/widgets/commit/bbb2222' })
     expect(h.receive.mock.calls[0]![0].text).toContain('Read github/commits/bbb2222/checks for every check.')
     h.store.close()
+  })
+})
+
+describe('github notification cursor', () => {
+  afterEach(() => vi.restoreAllMocks())
+  /** A notification as GitHub lists it: new as of the change it reports, in the repository that hosts the Issue. */
+  const listed = (id: string, repository: string, number: number, updated: string) => ({ id, updated_at: updated, reason: 'mention',
+    repository: { full_name: repository }, subject: { url: `https://api.github.com/repos/${repository}/issues/${number}`, type: 'Issue', title: '' } })
+  const opened = (repository: string, number: number, at: string) => ({ id: 1000 + number, number, title: 'Login fails', body: 'details',
+    state: 'open', created_at: at, html_url: `https://github.com/${repository}/issues/${number}`, user: { login: 'alice', type: 'User' } })
+  /**
+   * Stubs every `gh api` call against the watched repositories: each lists the notifications GitHub would return for
+   * the `since` in the request, which is how a notification that only becomes visible late falls out of reach of the
+   * cursor alone. The command wrapper is stubbed on its prototype so a repository scope (`.for()`) keeps the stub.
+   */
+  function acme(h: ReturnType<typeof host>, notifications: Record<string, ReturnType<typeof listed>[]>, issues: Record<string, unknown>) {
+    const reads: string[] = []
+    const answer = (url: string, args: string[]): string => {
+      const match = /^repos\/([^/]+\/[^/]+)\/(.*)$/.exec(url)!
+      const repository = match[1]!
+      const path = match[2]!
+      reads.push(`${repository}/${path}`)
+      const bare = path.split('?')[0]!
+      const include = args.includes('--include')
+      const body = (value: unknown) => include ? `HTTP/2.0 200 OK\r\nX-Poll-Interval: 60\r\n\r\n${JSON.stringify(value)}` : JSON.stringify(args.includes('--slurp') ? [value] : value)
+      if (bare === 'notifications') {
+        const since = Date.parse(decodeURIComponent(new URLSearchParams(path.split('?')[1]).get('since')!))
+        return body((notifications[repository] ?? []).filter(item => Date.parse(item.updated_at) >= since))
+      }
+      const route = issues[`${repository}/${bare}`] ?? (bare.endsWith('/comments') ? [] : undefined)
+      if (route === undefined) throw commandError({ stderr: 'gh: Not Found (HTTP 404)', code: 1 })
+      return body(route)
+    }
+    vi.spyOn(Commands.prototype, 'run').mockImplementation(async (_program, args) => answer(args[1]!, args))
+    // The fixture narrows a Source to one repository by returning the same wrapper; scope a real one instead so the URL
+    // names the repository the read belongs to.
+    vi.spyOn(h.commands, 'for').mockImplementation(function (this: Commands, repository: string) {
+      const self = this as unknown as { resolved: () => Deployment; environment: Record<string, string | undefined>; signal: AbortSignal }
+      return new Commands(self.resolved, self.environment, self.signal, repository)
+    })
+    return reads
+  }
+  it('lands a notification that only became visible after its update time fell behind the cursor', async () => {
+    const h = host()
+    const at = new Date(Date.now() - 40_000).toISOString()
+    // The cursor is already past the notification's update time, which is exactly the case the old cursor-only read dropped.
+    h.store.set('github-since', new Date(Date.now() - 30_000).toISOString())
+    acme(h, { 'acme/widgets': [listed('n12', 'acme/widgets', 12, at)] }, { 'acme/widgets/issues/12': opened('acme/widgets', 12, at) })
+    await pollRound(h)
+    expect(h.receive).toHaveBeenCalledOnce()
+    expect(h.receive.mock.calls[0]![0]).toMatchObject({ threads: [{ source: 'github', id: 'acme/widgets#12' }], text: 'Login fails\n\ndetails' })
+    h.store.close()
+  })
+  it('reads the notifications of every watched repository, not only the first', async () => {
+    const h = host({ deployment: testDeployment({ repositories: ['acme/widgets', 'acme/gadgets'] }) })
+    const at = new Date().toISOString()
+    h.store.set('github-since', new Date(Date.now() - 60_000).toISOString())
+    const reads = acme(h, { 'acme/widgets': [listed('n12', 'acme/widgets', 12, at)], 'acme/gadgets': [listed('n7', 'acme/gadgets', 7, at)] },
+      { 'acme/widgets/issues/12': opened('acme/widgets', 12, at), 'acme/gadgets/issues/7': opened('acme/gadgets', 7, at) })
+    await pollRound(h)
+    expect(reads.filter(path => path.includes('/notifications'))).toHaveLength(2)
+    expect(reads.some(path => path.startsWith('acme/gadgets/notifications'))).toBe(true)
+    expect(h.receive.mock.calls.map(([trigger]) => trigger.threads[0]!.id).sort()).toEqual(['acme/gadgets#7', 'acme/widgets#12'])
+    h.store.close()
+  })
+  it('reads a notification ID once, however many rounds list it again', async () => {
+    const h = host()
+    const at = new Date().toISOString()
+    h.store.set('github-since', new Date(Date.now() - 60_000).toISOString())
+    acme(h, { 'acme/widgets': [listed('n12', 'acme/widgets', 12, at)] }, { 'acme/widgets/issues/12': opened('acme/widgets', 12, at) })
+    await pollRound(h)
+    await pollRound(h)
+    expect(h.receive).toHaveBeenCalledOnce()
+    expect(h.store.get('github-notices')).toMatchObject({ n12: expect.any(String) })
+    h.store.close()
+  })
+  it('forgets a processed notification ID after its time to live', () => {
+    const now = '2026-11-08T00:00:00.000Z'
+    const kept = pruneNotices({ old: '2026-09-01T00:00:00.000Z', fresh: '2026-11-07T00:00:00.000Z' }, now)
+    expect(kept).toEqual({ fresh: '2026-11-07T00:00:00.000Z' })
+    // An unreadable timestamp is forgotten rather than kept forever.
+    expect(pruneNotices({ broken: 'never' }, now)).toEqual({})
   })
 })

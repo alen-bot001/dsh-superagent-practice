@@ -49,6 +49,8 @@ export const KV = {
    * that the Source filters by repository itself.
    */
   github: { since: record<string>('github-since'), retries: record<Record<string, Retry>>('github-retry'),
+    /** Notification ID to the round that read it; the lookback window lists a notification again within `NOTICE_TTL_MS`. */
+    notices: record<Record<string, string>>('github-notices'),
     cursor: family<string, [thread: string]>('github-cursor:'),
     stream: family<{ since: string; started: Record<string, string>; etag?: string }, [repository: string, stream: string]>('github-stream:'),
     branchCi: family<{ branch?: string; failures?: string[]; revision: number }, [repository: string]>('github-branch-ci:'),

@@ -39,7 +39,11 @@ function ended(error: unknown): string {
   if (typeof code === 'number') return `exited with code ${code}`
   return typeof code === 'string' ? `could not run: ${code}` : 'failed'
 }
-export interface Tally { skipped: number }
+export interface Tally { skipped: number
+  /** Items dropped because they name no watched repository or no readable Issue, PR, or comment. */
+  filtered?: number
+  /** Items listed again after being read in this or an earlier round. */
+  duplicate?: number }
 /** Parses array elements against a schema, skipping invalid items and incrementing `tally.skipped`. */
 export function validItems<T>(item: z.ZodType<T>, list: readonly unknown[], tally?: Tally): T[] {
   const items = list.flatMap(value => { const parsed = item.safeParse(value); return parsed.success ? [parsed.data] : [] })

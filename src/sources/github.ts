@@ -19,10 +19,14 @@ import { z } from 'zod'
 export { commentTrigger, type GithubComment } from './github-trigger.ts'
 /** A notification of the agent account; `subject.url` is the API address of its Issue or PR. */
 const NotificationSchema = z.looseObject({
+  id: z.union([z.number(), z.string()]).transform(String),
   repository: z.looseObject({ full_name: z.string() }), subject: z.looseObject({ url: z.string().nullish() }),
+  updated_at: z.string().nullish(),
 })
 
 const GithubConfigSchema = GithubAccountsSchema.extend({ pollSeconds: z.number().int().min(60).max(3600).default(60),
+  /** How far back each round re-lists notifications, so one GitHub indexed late is still seen; the processed-ID set keeps it from being read twice. */
+  lookbackSeconds: z.number().int().min(60).max(3600).default(900),
   failuresBeforeError: z.number().int().min(1).max(20).default(3),
   observeIssues: z.boolean().default(false), observePulls: z.boolean().default(false), observeComments: z.boolean().default(false),
   observeCi: z.boolean().default(false) }).strict()
@@ -173,7 +177,7 @@ interface Round {
   tally: Tally
 }
 const newRound = (signal?: AbortSignal): Round => ({ started: new Date().toISOString(), signal, pulls: new Map(), read: new Set(),
-  failures: [], dropped: [], abandoned: [], tally: { skipped: 0 } })
+  failures: [], dropped: [], abandoned: [], tally: { skipped: 0, filtered: 0, duplicate: 0 } })
 const stopped = (ctx: SourceContext, round: Round): boolean => !!round.signal?.aborted || !ctx.config(SOURCE)
 export interface Retry { since: string; pr: boolean; failedAt?: string; attempts?: number }
 const RETRY_WINDOW_MS = 24 * 3600_000
@@ -323,53 +327,97 @@ export async function pollRound(ctx: SourceContext, signal?: AbortSignal): Promi
   const dropped = (round.dropped.length ? `; deleted on GitHub: ${listed(round.dropped)}` : '')
     + (round.abandoned.length ? `; dropped after their reads kept failing: ${listed(round.abandoned)}` : '')
     + (round.tally.skipped ? `; ${round.tally.skipped} unreadable items skipped` : '')
+    + (round.tally.filtered ? `; ${round.tally.filtered} notifications outside the watched repositories` : '')
+    + (round.tally.duplicate ? `; ${round.tally.duplicate} notifications already processed` : '')
   ctx.report('github', { state: 'ready', detail: `${count} notifications; next poll ≥ ${interval}s${dropped}`, at: round.started })
   return interval
 }
-/** Reads notifications since the cursor and each Issue or PR they name, advancing the cursor atomically with the retry map for failed reads; deleted (410) Issues are dropped once their error is recorded. */
+/** How long a processed notification ID is remembered; a lookback window lists an older notification again, so a read after this is a new one. */
+const NOTICE_TTL_MS = 30 * 24 * 3600_000
+/** How far an Issue's `created_at` may trail the read position and still count as opened by the notification that names it. */
+const NOTICE_LAG_MS = 15 * 60_000
+/** Most processed notification IDs kept; the oldest are forgotten first and their lookback window re-lists them. */
+const NOTICE_LIMIT = 5000
+/** Forgets processed notification IDs older than `NOTICE_TTL_MS`, then all but the newest `NOTICE_LIMIT`. */
+export function pruneNotices(notices: Record<string, string>, now: string): Record<string, string> {
+  const at = Date.parse(now)
+  return Object.fromEntries(Object.entries(notices)
+    .filter(([, seen]) => Number.isFinite(Date.parse(seen)) && at - Date.parse(seen) < NOTICE_TTL_MS)
+    .sort(([, left], [, right]) => Date.parse(right) - Date.parse(left)).slice(0, NOTICE_LIMIT))
+}
+/**
+ * Lists every watched repository's notifications inside a lookback window and reads each Issue or PR they name,
+ * advancing the cursor atomically with the retry map for failed reads; deleted (410) Issues are dropped once their
+ * error is recorded.
+ *
+ * GitHub lists a notification some seconds after it updates it, so a cursor taken from the previous round's start can
+ * already be past an item that only became visible later: that item is never listed again and the event is lost.
+ * Every round therefore lists a window reaching back `lookbackSeconds`, and the processed-ID set — not the cursor —
+ * decides what is new.
+ */
 async function pollNotifications(ctx: SourceContext, round: Round, repositories: readonly string[]): Promise<{ count: number; interval: number }> {
   const { state } = ctx
-  const commands = ctx.commands.withSignal(round.signal)
   const since = state.get(KV.github.since) ?? round.started
   if (state.get(KV.github.since) === undefined) state.set(KV.github.since, since)
-  // `notifications` is an account-wide list with no repository in its path, so one cursor covers every watched
-  // repository and the Source keeps the notifications it may act on; nothing is lost when one cursor serves them all.
-  const path = `notifications?all=true&per_page=50&since=${encodeURIComponent(since)}`
-  const raw = await commands.api(path, '--include')
-  const split = raw.search(/\r?\n\r?\n/)
-  if (split < 0) throw new Error('GitHub returned no HTTP headers')
-  const headers = raw.slice(0, split)
-  const body = raw.slice(split).trim()
-  const asked = Number(/x-poll-interval:\s*(\d+)/i.exec(headers)?.[1] ?? 60)
-  const interval = Math.max(60, Number.isFinite(asked) ? asked : 60)
-  const notifications = /rel="next"/.test(headers)
-    ? await commands.pages(NotificationSchema, path, round.tally)
-    : validItems(NotificationSchema, z.array(z.unknown()).parse(JSON.parse(body)), round.tally)
+  const lookback = Math.max(60, ctx.config<GithubConfig>(SOURCE)?.lookbackSeconds ?? 900) * 1000
+  const window = new Date(Math.min(Date.parse(since), Date.parse(round.started) - lookback)).toISOString()
   const retries = { ...state.get(KV.github.retries) }
   // Failed items from the previous round run first, followed by newly notified items in chronological order; each is read once.
   // Items are keyed by Thread ID, so two repositories' #1 are two entries and never overwrite or deduplicate each other.
-  const items = new Map<string, { repository: string; number: number; retry: Retry }>(Object.entries(retries).flatMap(([thread, retry]) => {
+  const items = new Map<string, { repository: string; number: number; notice?: string; retry: Retry }>(Object.entries(retries).flatMap(([thread, retry]) => {
     const named = githubThreadName(thread)
     return named?.number ? [[thread, { repository: named.repository, number: named.number, retry }]] : []
   }))
-  for (const notification of notifications.reverse()) {
-    const name = notification.repository.full_name
-    if (!repositories.some(item => sameName(item, name))) continue
-    const address = githubAddress(notification.subject.url ?? '', repositories)
-    if (!address || address.discussion) continue
-    const thread = githubThreadId(address.repository, address.number)
-    if (items.has(thread)) continue
-    const { number, pr } = address
-    items.set(thread, { repository: address.repository, number, retry: { since: [state.get(KV.github.cursor(thread)) ?? since, since].sort().at(-1)!, pr } })
+  const notices = { ...state.get(KV.github.notices) }
+  let count = 0
+  let interval = 60
+  // The notifications path is inside `repos/<repository>`, so the account-wide list is out of reach and every watched
+  // repository is listed on its own; listing only the first would never see the others'.
+  for (const repository of repositories) {
+    if (stopped(ctx, round)) break
+    const commands = ctx.commands.withSignal(round.signal).for(repository)
+    const path = `notifications?all=true&per_page=100&since=${encodeURIComponent(window)}`
+    const raw = await commands.api(path, '--include')
+    const split = raw.search(/\r?\n\r?\n/)
+    if (split < 0) throw new Error('GitHub returned no HTTP headers')
+    const headers = raw.slice(0, split)
+    const body = raw.slice(split).trim()
+    const asked = Number(/x-poll-interval:\s*(\d+)/i.exec(headers)?.[1] ?? 60)
+    interval = Math.max(interval, 60, Number.isFinite(asked) ? asked : 60)
+    const notifications = /rel="next"/.test(headers)
+      ? await commands.pages(NotificationSchema, path, round.tally)
+      : validItems(NotificationSchema, z.array(z.unknown()).parse(JSON.parse(body)), round.tally)
+    count += notifications.length
+    for (const notification of notifications.reverse()) {
+      const address = githubAddress(notification.subject.url ?? '', repositories)
+      // A notification outside the watched repositories, or one whose subject is a discussion rather than the Issue or
+      // PR itself, is dropped; counting it keeps the drop visible in health instead of silent.
+      if (!address || address.discussion || !repositories.some(name => sameName(name, notification.repository.full_name))) {
+        round.tally.filtered = (round.tally.filtered ?? 0) + 1
+        continue
+      }
+      const thread = githubThreadId(address.repository, address.number)
+      // A pending retry still has to run, so only a notification with no retry counts as already processed.
+      if (items.has(thread) || (!retries[thread] && notices[notification.id] !== undefined)) {
+        round.tally.duplicate = (round.tally.duplicate ?? 0) + 1
+        continue
+      }
+      const { number, pr } = address
+      // The Issue or PR can update before the notification naming it is listed, so the read reaches back to the
+      // notification's own update time; replaying a comment is harmless because Trigger IDs deduplicate.
+      const listed = Math.min(Date.parse(state.get(KV.github.cursor(thread)) ?? since), Date.parse(notification.updated_at ?? round.started))
+      items.set(thread, { repository: address.repository, number, notice: notification.id, retry: { since: new Date(listed).toISOString(), pr } })
+    }
   }
   for (const [thread, item] of items) {
-    if (stopped(ctx, round)) return { count: notifications.length, interval }
+    if (stopped(ctx, round)) return { count, interval }
     round.read.add(thread)
     try {
       await readNotified(ctx, round, item.repository, item.number, item.retry)
       delete retries[thread]
+      if (item.notice) notices[item.notice] = round.started
     } catch (error) {
-      if (stopped(ctx, round)) return { count: notifications.length, interval }
+      if (stopped(ctx, round)) return { count, interval }
       const retry = { ...item.retry, failedAt: item.retry.failedAt ?? round.started, attempts: (item.retry.attempts ?? 0) + 1 }
       // Abandon notification retries after 24 hours of failures so a permanently unreadable thread does not hold source health in error; its cursor stays so a later notification or thread poll still reads what was missed.
       const abandoned = Date.parse(round.started) - Date.parse(retry.failedAt) >= RETRY_WINDOW_MS
@@ -378,8 +426,9 @@ async function pollNotifications(ctx: SourceContext, round: Round, repositories:
       delete retries[thread]
     }
   }
-  ctx.atomic(() => { state.set(KV.github.since, cursorAt(round.started)); state.set(KV.github.retries, retries) })
-  return { count: notifications.length, interval }
+  ctx.atomic(() => { state.set(KV.github.since, cursorAt(round.started)); state.set(KV.github.retries, retries)
+    state.set(KV.github.notices, pruneNotices(notices, round.started)) })
+  return { count, interval }
 }
 async function readNotified(ctx: SourceContext, round: Round, repository: string, number: number, item: Retry): Promise<void> {
   const { since } = item
@@ -394,7 +443,10 @@ async function readNotified(ctx: SourceContext, round: Round, repository: string
       // An Issue opened by someone other than the agent since the cursor brings its body so a mention in it reaches the gate.
       // A mention added by a later edit to the body is not read: only the author can be the actor of the body.
       const { login } = ctx.deployment.github
-      const opened = Date.parse(issue.created_at) >= Date.parse(since) && !sameName(issue.user.login, login)
+      // A notification can be listed a round or more after the Issue it names was opened, so an Issue opened within the
+      // lag tolerance of the read position is new even though its `created_at` is already behind that position; comparing
+      // the two times without the tolerance drops the body of a late notification for good.
+      const opened = Date.parse(issue.created_at) >= Date.parse(since) - NOTICE_LAG_MS && !sameName(issue.user.login, login)
       if (opened) await ctx.receive(issueTrigger(issue, login, repository))
       await intakeComments(ctx, { repository, number, isPr: false, url: issue.html_url }, since, round)
       nameThread(ctx, repository, number, issue.title)
