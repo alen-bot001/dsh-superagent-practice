@@ -43,7 +43,7 @@ export const githubKind: SourceKind<GithubConfig> = {
   fields: [
     { key: 'repositories', type: 'rows', label: { zh: '监听的仓库', en: 'Repositories' },
       hint: { zh: '每行写作 owner/name。这个来源接收这些仓库的通知和讨论；保存时逐个检查智能体账号能否推送到每一行，然后重启 dsh-superagent。', en: 'One owner/name per row. This Source receives these repositories\' notifications and discussion; saving checks that the agent account can push to every row, then restarts dsh-superagent.' },
-      columns: [{ key: 'name', type: 'text', label: { zh: '仓库', en: 'Repository' }, pattern: '[A-Za-z0-9_.\\-]+/[A-Za-z0-9_.\\-]+' }] },
+      columns: [{ key: 'name', type: 'text', label: { zh: '仓库', en: 'Repository' }, pattern: '[A-Za-z0-9_.\\-]+/[A-Za-z0-9_.\\-]+', renameable: true }] },
     { key: 'cli', type: 'text', label: { zh: '智能体的 GitHub CLI', en: 'Agent GitHub CLI' },
       hint: { zh: '命令名或绝对路径，通常是用 GH_CONFIG_DIR 登录智能体账号的 gh 包装脚本。智能体以它登录的账号行事，执行器以 gh 调用它。保存时检查它登录的账号能否推送上面每一行仓库，然后重启 dsh-superagent。', en: 'A command name or absolute path, usually a gh wrapper signed in to the agent account through GH_CONFIG_DIR. The agent acts as the account it is signed in to, and the Executor calls it as gh. Saving checks that this account can push to every repository above, then restarts dsh-superagent.' } },
     { key: 'pollSeconds', type: 'number', advanced: true, min: 60, max: 3600, label: { zh: '轮询间隔 / 秒', en: 'Polling interval / seconds' }, hint: { zh: 'GitHub 要求更长间隔时以 GitHub 为准。', en: 'A longer interval requested by GitHub wins.' } },

@@ -72,11 +72,11 @@ export const text = () => [...document.body.querySelectorAll('style')].reduce((a
 export function field<E extends HTMLElement>(label: string): E {
   const labelled = (element: HTMLElement) => !!element.id && all('label').some(item => (item as HTMLLabelElement).htmlFor === element.id
     && item.textContent === label)
-  // A rows editor heads its inputs with a span rather than a label, so fall back to the inputs under that head.
-  let headed = all('.dt-field-head').find(element => element.textContent?.startsWith(label)) ?? null
-  while (headed && !headed.querySelector('input, textarea, select')) headed = headed.parentElement
+  // A rows editor heads its inputs with a span rather than a label, so fall back to the inputs of that same field
+  // container; climbing further would reach a neighbouring field's input.
+  const container = all('.dt-field-head').find(element => element.textContent?.startsWith(label))?.closest('.dt-field') ?? null
   const match = all('input, textarea, select').find(element => element.getAttribute('aria-label') === label || labelled(element))
-    ?? headed?.querySelector('input, textarea, select')
+    ?? container?.querySelector('input, textarea, select')
   if (!match) throw new Error(`No field ${label}`)
   return match as unknown as E
 }

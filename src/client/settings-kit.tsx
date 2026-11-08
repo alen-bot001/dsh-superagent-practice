@@ -192,7 +192,9 @@ function RowsField({ field, value, saved, onChange, labels, refreshLabels }: {
   const rowName = (row: Row) => (named && row[named.key]) || labels[row[key.key] ?? ''] || row[key.key] || ''
   const cell = (row: Row, index: number, column: Column) => {
     const id = row[key.key] ?? '', change = (next: string) => set(index, { ...row, [column.key]: next })
-    if (column === key && (savedKeys.has(id) || (!choose && labels[id]))) {
+    // A saved key is shown read-only as its name, except in a column that may be renamed (a watched repository), where
+    // it stays an input so a typo can be corrected.
+    if (column === key && !(column.type === 'text' && column.renameable) && (savedKeys.has(id) || (!choose && labels[id]))) {
       return <span key={column.key} className={labels[id] ? 'dt-row-label' : 'dt-row-label dt-mono'} title={id}>{labels[id] ?? id}</span>
     }
     if (column === key && choose) {

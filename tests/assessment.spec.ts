@@ -20,6 +20,8 @@ function setup(strength: 'explicit' | 'inferred' = 'inferred', bodies = Array.fr
   const commands = {
     repository: 'acme/widgets', deployment: testDeployment(),
     withSignal() { return commands },
+    // A Thread names its repository, so the Source asks for that repository's commands; this fake serves one repository.
+    for() { return commands },
     gh: vi.fn(async (args: string[]) => {
       await gate.issue
       const number = Number(/issues\/(\d+)/.exec(args[1]!)?.[1])
