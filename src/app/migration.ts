@@ -585,15 +585,13 @@ function issueSourceRecords(store: Store): void {
   const kept = ['github-issue-pending', 'github-issues-since', 'github-issues-started-at', ...store.keys('github-issue-eligibility:')]
   for (const name of kept) store.delete(name)
 }
-/** Consolidate per-issue/PR notification and thread subscription cursors into a single cursor holding the later timestamp. */
+/**
+ * Drops per-issue/PR notification and thread subscription cursors, once consolidated into the single cursor they all
+ * advanced. A per-thread cursor now names its repository (`<owner/name>#<number>`), which these keys predate and cannot
+ * supply, so they are dropped rather than consolidated onto a repository they do not belong to.
+ */
 function githubCursors(store: Store): void {
-  for (const name of [...store.keys('github-thread:'), ...store.keys('thread-since:github:')]) {
-    const at = store.get<string>(name as Key<string>)
-    const cursor = KV.github.cursor(Number(name.slice(name.lastIndexOf(':') + 1)))
-    const current = store.get(cursor)
-    if (at && !(current && current >= at)) store.set(cursor, at)
-    store.delete(name)
-  }
+  for (const name of [...store.keys('github-thread:'), ...store.keys('thread-since:github:')]) store.delete(name)
 }
 /** Attach trigger IDs to pending assessment effects and re-enqueue undelivered active evaluations so their timeout deadlines start. */
 function assessmentTriggers(store: Store): void {

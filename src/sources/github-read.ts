@@ -2,6 +2,7 @@
 import { z } from 'zod'
 import type { ThreadFact } from '../core/index.ts'
 import { validItems, type Commands, type Tally } from '../infra/commands.ts'
+import { githubThreadName } from './github-trigger.ts'
 import { CommentSchema, IssueSchema, isHumanLogin, reviewPlace, type GithubComment } from './github-trigger.ts'
 import type { ContextMessage, ThreadContext } from './kind.ts'
 
@@ -158,7 +159,10 @@ async function conversationPage(commands: Commands, number: number, page: number
  */
 export const githubThreadContext: ThreadContext<unknown> = {
   messageId: trigger => trigger.url ?? '',
-  read: async (commands, trigger, part, cursor) => {
+  read: async (unscoped, trigger, part, cursor) => {
+    // The Trigger's own Thread names its repository, so an assessment of a second repository's Issue reads that repository.
+    const named = trigger.threads.map(ref => githubThreadName(ref.id)).find(item => item !== undefined)
+    const commands = named ? unscoped.for(named.repository) : unscoped
     // The default branch's CI has no conversation; its Trigger is its context.
     if (typeof trigger.meta.branch === 'string') {
       const message = { id: trigger.url ?? trigger.id, from: 'CI', at: trigger.at, text: trigger.text, bot: true as const }

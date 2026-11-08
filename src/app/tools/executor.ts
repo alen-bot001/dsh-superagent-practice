@@ -2,6 +2,7 @@
 import { z } from 'zod'
 import { liveTicket, type EngineForExecutor, type Ticket } from '../../core/index.ts'
 import { IM_WORDS } from '../../infra/text.ts'
+import { primaryRepository } from '../../deployment.ts'
 import { claimPull, readPull } from '../../sources/github-pull.ts'
 import type { SourceContext } from '../../sources/host.ts'
 import { readResource, type ResourceHost } from '../resources.ts'
@@ -12,7 +13,7 @@ import { AcknowledgementSchema, readTool, tool, type Tool } from './tool.ts'
 
 export interface ExecutorToolsHost {
   readonly engine: Pick<EngineForExecutor, 'report' | 'reply' | 'markUnrelated' | 'handback' | 'followForContext'>
-  readonly store: Pick<Store, 'tickets' | 'replyStatus' | 'atomic'>
+  readonly store: Pick<Store, 'tickets' | 'triggers' | 'replyStatus' | 'atomic'>
   readonly sessions: Pick<Sessions, 'relay' | 'notify'>
   readonly resources: ResourceHost
   /** GitHub Source context whose pull-request rules govern claiming a reported PR. */
@@ -85,10 +86,14 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
       execute: async (args, signal) => {
         const current = host.store.tickets.get(ticketId)
         if (!current || !liveTicket(current)) throw new Error('Ticket ended (PR was closed or work finished); do not resume it')
-        const pull = args.pr_number != null ? await readPull(host.github, args.pr_number, signal) : undefined
+        // The repository the ticket came from, so a ticket of a second repository reports a PR of that repository.
+        const origin = host.store.triggers.get(current.origin.triggerId)
+        const repository = origin?.source === 'github' && typeof origin.meta.repository === 'string'
+          ? origin.meta.repository : primaryRepository(host.github.deployment)
+        const pull = args.pr_number != null ? await readPull(host.github, repository, args.pr_number, signal) : undefined
         // Claim the PR, record the report, and queue the relay atomically so a rejected PR claim or invalid report leaves no partial state, and a recorded report always reaches the main Session.
         return host.store.atomic(() => {
-          const refused = pull && claimPull(host.github, ticketId, pull)
+          const refused = pull && claimPull(host.github, ticketId, repository, pull)
           if (refused) throw new Error(refused)
           const report = { state: args.state, summary: args.summary, ...(args.human_action !== undefined ? { question: args.human_action } : {}),
             ...(args.question_for_trigger_id ? { askedBy: args.question_for_trigger_id } : {}),
