@@ -15,12 +15,29 @@ export const githubThreadId = (repository: string, number: number): string => `$
 export const githubCiThreadId = (repository: string, branch: string): string => `${repository}#ci:${branch}`
 /** The repository, Issue or PR number, or CI branch a Thread ID names. */
 export interface GithubThreadName { repository: string; number?: number; branch?: string }
-/** Parses a Thread ID back into its repository and Issue, PR, or CI branch; undefined for anything else. */
+/**
+ * Parses a Thread ID back into its repository and Issue, PR, or CI branch; undefined for anything else. An ID written
+ * before IDs named a repository (`12`, `ci:main`) still parses, with an empty repository: the Source watched one
+ * repository then, and only the deployment can say which one that is.
+ */
 export function githubThreadName(id: string): GithubThreadName | undefined {
   const match = new RegExp(`^(${REPOSITORY})#(?:ci:(.+)|(\\d+))$`).exec(id)
-  if (!match) return undefined
-  return match[2] !== undefined ? { repository: match[1]!, branch: match[2] }
-    : { repository: match[1]!, number: Number(match[3]) }
+  if (match) {
+    return match[2] !== undefined ? { repository: match[1]!, branch: match[2] }
+      : { repository: match[1]!, number: Number(match[3]) }
+  }
+  const legacy = /^#?(\d+)$/.exec(id)
+  if (legacy) return { repository: '', number: Number(legacy[1]) }
+  const branch = /^ci(?::(.+))?$/.exec(id)
+  return branch ? { repository: '', branch: branch[1] ?? 'HEAD' } : undefined
+}
+/**
+ * The repository a Thread belongs to: the one its ID names, or, for an ID written before IDs named one, the only
+ * repository this deployment watches. Several repositories leave such an ID unresolved rather than guess.
+ */
+export function threadRepository(named: GithubThreadName | undefined, repositories: readonly string[]): string | undefined {
+  if (!named) return undefined
+  return named.repository || (repositories.length === 1 ? repositories[0] : undefined)
 }
 /** Parses a whole Thread key (`github:<repository>#<number>`), not just its ID. */
 export const githubThreadKeyName = (key: string): GithubThreadName | undefined =>

@@ -6,7 +6,7 @@ import { GithubAccountsSchema, primaryRepository, watchedRepositories } from '..
 import { CliError, validItems, type Tally } from '../infra/commands.ts'
 import { ciCounts, ciFact, ciFailures, ciSummary, githubThreadContext, pullChecks } from './github-read.ts'
 import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, githubAddress, githubCiThreadId, githubThread, githubThreadId,
-  githubThreadKeyName, githubThreadName, issueTrigger, IssueSchema, pullTrigger, SOURCE } from './github-trigger.ts'
+  githubThreadKeyName, githubThreadName, issueTrigger, IssueSchema, pullTrigger, SOURCE, threadRepository } from './github-trigger.ts'
 import { githubLink, sendGithub } from './github-channel.ts'
 import type { GithubComment, PullRef } from './github-trigger.ts'
 import { observePull, pullsOf, readPull, type Pull } from './github-pull.ts'
@@ -440,8 +440,10 @@ async function intakeComments(ctx: SourceContext, ref: PullRef, since: string, r
 }
 export async function pollTicketPulls(ctx: SourceContext, signal?: AbortSignal, round = newRound(signal)): Promise<void> {
   // Each followed Thread names its repository, so a ticket's PR is polled in the repository it was opened in.
-  const refs = [...new Map(ctx.tickets.open().flatMap(ticket => pullsOf(ticket, true))
-    .map(ref => [githubThreadId(ref.repository, ref.number), ref])).values()]
+  const refs = [...new Map(ctx.tickets.open().flatMap(ticket => pullsOf(ticket, true)).flatMap(ref => {
+    const repository = threadRepository(ref, ctx.deployment.repositories)
+    return repository ? [[githubThreadId(repository, ref.number), { repository, number: ref.number }]] : []
+  })).values()]
   for (const ref of refs) {
     if (stopped(ctx, round)) return
     try {
@@ -474,13 +476,15 @@ export async function pollThreads(ctx: SourceContext, signal?: AbortSignal, roun
     catch (error) {
       if (stopped(ctx, round)) throw error
       const named = githubThreadName(thread.ref.id)
-      if (deleted(error)) round.dropped.push(named ? githubThreadId(named.repository, named.number ?? 0) : thread.ref.id)
+      const repository = threadRepository(named, ctx.deployment.repositories)
+      if (deleted(error)) round.dropped.push(repository && named?.number !== undefined ? githubThreadId(repository, named.number) : thread.ref.id)
       else round.failures.push(`${thread.key}: ${String(error)}`)
       throw error
     }
   }, thread => {
     const named = githubThreadName(thread.ref.id)
-    return named?.number !== undefined && round.read.has(githubThreadId(named.repository, named.number))
+    const repository = threadRepository(named, ctx.deployment.repositories)
+    return named?.number !== undefined && repository !== undefined && round.read.has(githubThreadId(repository, named.number))
   })
 }
 async function pollThread(ctx: SourceContext, round: Round, thread: Thread): Promise<void> {
@@ -489,7 +493,10 @@ async function pollThread(ctx: SourceContext, round: Round, thread: Thread): Pro
   if (named?.branch !== undefined) return
   const number = named?.number ?? 0
   if (!named || !number) throw new Error('Subscribed thread has no GitHub issue or PR number')
-  const { repository } = named
+  const repository = threadRepository(named, ctx.deployment.repositories)
+  // A Thread keyed by a bare number predates repository IDs; with several repositories watched, which one it belongs to
+  // is unknowable, so the poll says so instead of reading the wrong repository.
+  if (!repository) throw new Error(`Subscribed thread ${thread.key} names no repository, and this deployment watches ${ctx.deployment.repositories.length}`)
   round.read.add(githubThreadId(repository, number))
   if (typeof thread.meta.isPr !== 'boolean' || typeof thread.meta.title !== 'string') {
     const issue = await ctx.commands.withSignal(round.signal).for(repository).api(IssueSchema, `issues/${number}`)

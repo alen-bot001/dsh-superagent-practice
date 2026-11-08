@@ -17,6 +17,13 @@ export const readPull = async (ctx: SourceContext, repository: string, number: n
   ({ ...await ctx.commands.withSignal(signal).for(repository).api(PullSchema, `pulls/${number}`), number })
 /** A PR a ticket follows: the Thread names both its repository and its number. */
 export interface PullFollow { repository: string; number: number }
+/** A followed PR is in `repository` when its Thread names it, or names none because it was followed before IDs did. */
+const followsIn = (ref: PullFollow, repository: string): boolean => !ref.repository || sameName(ref.repository, repository)
+/** Whether a followed Thread key is the Thread of PR `number` in `repository`, including a key written before IDs named one. */
+function namesPull(thread: string, repository: string, number: number): boolean {
+  const ref = pullFollow(thread)
+  return !!ref && ref.number === number && followsIn(ref, repository)
+}
 /** Parses a followed Thread key back into the repository and PR number it names; undefined for anything else. */
 export function pullFollow(thread: string): PullFollow | undefined {
   const named = githubThreadKeyName(thread)
@@ -49,10 +56,9 @@ export function claimPull(ctx: SourceContext, ticketId: string, repository: stri
     const { login } = ctx.deployment.github
     return `PR does not belong to this ticket: use the source PR or a PR by ${login} from a branch whose last path segment is DSH_SUPERAGENT_NAME; omit pr_number when no PR exists`
   }
-  const owner = ctx.tickets.open().find(item => pullsOf(item, true).some(ref => ref.number === pr.number && sameName(ref.repository, repository)))
+  const owner = ctx.tickets.open().find(item => pullsOf(item, true).some(ref => ref.number === pr.number && followsIn(ref, repository)))
   if (owner && owner.id !== ticketId) return 'PR already belongs to another active ticket'
-  const thread = `${SOURCE}:${githubThread(repository, pr.number).id}`
-  const follow = ticket.follows?.find(item => item.thread === thread)
+  const follow = ticket.follows?.find(item => namesPull(item.thread, repository, pr.number))
   if (pr.state === 'open' && (!follow || follow.closed || (opened && !follow.own))) bind(ctx, ticketId, repository, pr, opened)
   return undefined
 }
@@ -69,9 +75,8 @@ export async function observePull(ctx: SourceContext, repository: string, pr: Pu
     const candidates = agentPull(pr, ctx.deployment) ? ctx.tickets.open().filter(ticket => ticketBranch(ticket, pr.head.ref)) : []
     const ticket = candidates.length === 1 ? candidates[0]! : undefined
     // A PR the ticket followed until it closed, and that is open again, is followed again.
-    const thread = `${SOURCE}:${githubThread(repository, pr.number).id}`
-    const reopened = ticket?.follows?.some(item => item.thread === thread && item.closed)
-    if (ticket && (reopened || pullsOf(ticket, true).every(ref => ref.number === pr.number && sameName(ref.repository, repository)))) {
+    const reopened = ticket?.follows?.some(item => item.closed && namesPull(item.thread, repository, pr.number))
+    if (ticket && (reopened || pullsOf(ticket, true).every(ref => ref.number === pr.number && followsIn(ref, repository)))) {
       claimPull(ctx, ticket.id, repository, pr)
     }
   }
@@ -91,7 +96,7 @@ function bind(ctx: SourceContext, ticketId: string, repository: string, pr: Pull
  * Their subscription to the PR stays so a later human comment there resumes the ticket.
  */
 function closePull(ctx: SourceContext, repository: string, pr: Pull): void {
-  if (!ctx.tickets.open().some(ticket => pullsOf(ticket, true).some(ref => ref.number === pr.number && sameName(ref.repository, repository)))) return
+  if (!ctx.tickets.open().some(ticket => pullsOf(ticket, true).some(ref => ref.number === pr.number && followsIn(ref, repository)))) return
   const at = pr.merged_at ?? pr.closed_at ?? new Date().toISOString()
   ctx.tickets.threadClosed(githubThread(repository, pr.number), pr.merged ? 'merged' : 'closed', at)
 }
@@ -100,14 +105,18 @@ function closePull(ctx: SourceContext, repository: string, pr: Pull): void {
  * opened, else the last one it followed). The notice language follows the ticket's source request: Chinese when it contains
  * Han characters and no kana, otherwise English.
  */
-export function pullEndNotices(ticket: Ticket, request: string): OutboundMessage[] {
+export function pullEndNotices(ticket: Ticket, request: string, repository?: string): OutboundMessage[] {
   const outcome = ticket.ended?.outcome
   const follows = (ticket.follows ?? []).filter(item => item.closed && pullFollow(item.thread) !== undefined)
   const latest = (items: Follow[]) => items.sort((a, b) => b.closed!.at.localeCompare(a.closed!.at))[0]
   const follow = latest(follows.filter(item => item.own)) ?? latest(follows)
   if ((outcome !== 'merged' && outcome !== 'closed') || !follow) return []
-  const { repository, number } = pullFollow(follow.thread)!
-  const url = githubPage(repository, number, true)
+  const followed = pullFollow(follow.thread)!
+  // A PR followed before Thread keys named a repository is linked in the repository the ticket belongs to.
+  const where = followed.repository || repository
+  if (!where) return []
+  const { number } = followed
+  const url = githubPage(where, number, true)
   const chinese = /\p{Script=Han}/u.test(request) && !/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(request)
   const text = chinese
     ? outcome === 'merged' ? `[PR #${number}](${url}) 已合并。` : `[PR #${number}](${url}) 已关闭，未合并。`
