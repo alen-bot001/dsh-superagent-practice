@@ -125,8 +125,8 @@ it('writes a schema 10 database in its current shape once, so nothing reads an o
     origin: { triggerId: 'trig-1', triggerIds: ['trig-1', 'trig-2'] },
     execution: { name: 'fix-1', directory: '/w/fix-1', assignment: 'Read trigger/trig-1.' },
     delivery: { error: 'offline', at: '2' },
-    follows: [{ thread: 'github:8', own: true, closed: { at: '2026-09-01T00:00:00Z', outcome: 'merged' } }, { thread: 'github:7', own: false }],
-    channels: [{ source: 'github', thread: 'github:7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
+    follows: [{ thread: 'github:acme/widgets#8', own: true, closed: { at: '2026-09-01T00:00:00Z', outcome: 'merged' } }, { thread: 'github:acme/widgets#7', own: false }],
+    channels: [{ source: 'github', thread: 'github:acme/widgets#7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
     answers: ['trig-3'],
     mandate: { basis: { via: 'listed', source: 'feishu', scope: { chatId: 'oc_team', direct: false }, sender: 'ou_alice', addressed: 'mention' } },
   })
@@ -202,7 +202,7 @@ it('changes nothing when one step fails: the database stays at schema 10 as it w
     updatedAt: '2', mandate: mandate({ via: 'listed' }), meta: { sourceTriggerId: 'trig-1', workspace: '/w/fix-1' } }
   // The current settings must validate; an invalid value aborts the migration transaction.
   schema10(path, { settings: { executor: { maxWorkers: 'many' } } }, { ticket: [ticket] })
-  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 11 failed: the settings: /)
+  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 12 failed: the settings: /)
   const db = new DatabaseSync(path)
   expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '10' })
   expect(JSON.parse(String(db.prepare("SELECT value FROM ticket WHERE id='t1'").get()!.value))).toMatchObject({ meta: { workspace: '/w/fix-1' } })
@@ -408,8 +408,9 @@ it('writes the Sources\' records in their current shape once, so no Source conve
   expect(store.receipts.waiting()[0]!.channel.address).toEqual({ chatId: 'oc_dm', messageId: 'om_1', direct: 'true' })
   expect(store.threads.get('feishu:oc_team:om_9')!.meta.url).toBe('https://applink.feishu.cn/client/chat/open?openChatId=oc_team')
   expect(store.triggers.get('issue')!.source).toBe('github')
-  // The waiting mention within the polling horizon is read again; the older one is no fresh request.
-  expect(store.get(KV.github.retries)).toEqual({ 12: { since: recent, pr: false } })
+  // The waiting mention within the polling horizon is read again, keyed by the repository-qualified Thread ID; the older
+  // one is no fresh request.
+  expect(store.get(KV.github.retries)).toEqual({ 'acme/widgets#12': { since: recent, pr: false } })
   // A per-thread cursor now names the repository it belongs to, which a store written before that change does not record;
   // migration drops the superseded keys rather than guess one, so no cursor is written here.
   for (const name of ['github-issue-pending', 'github-issues-since', 'github-thread:7', 'thread-since:github:7', 'github-thread:8']) {
@@ -475,7 +476,7 @@ it('names the ticket it stopped at when a ticket does not read, and leaves the d
   const path = join(directory, 'db.sqlite')
   const { inputs: _inputs, ...broken } = ticket10('t9')
   schema10(path, {}, { ticket: [broken] })
-  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 11 failed: ticket t9: /)
+  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 12 failed: ticket t9: /)
   const db = new DatabaseSync(path)
   expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '10' })
   expect(JSON.parse(String(db.prepare("SELECT value FROM ticket WHERE id='t9'").get()!.value))).toEqual(broken)
@@ -536,4 +537,100 @@ it('delivers the candidate of an Eval in progress at the upgrade again, so its d
   const effects = store.db.prepare("SELECT key, value FROM effect WHERE kind = 'assessment'").all().map(row => [row.key, JSON.parse(String(row.value))])
   expect(effects).toEqual([['e9', { triggerId: 'issue-9' }]])
   store.close()
+})
+
+/** Seed a SQLite database in the schema 11 layout, where a GitHub Thread ID was the Issue or PR number alone. */
+function schema11(path: string, records: Record<string, unknown> = {},
+  rows: { ticket?: object[]; decision?: object[]; thread?: object[]; trigger?: object[]; triggerThread?: object[]; outbox?: object[] } = {}): void {
+  new Store(path).close()
+  const db = new DatabaseSync(path)
+  const set = (name: string, value: unknown) =>
+    db.prepare('INSERT INTO kv VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(name, JSON.stringify(value))
+  set('schema', 11)
+  for (const [name, value] of Object.entries(records)) set(name, value)
+  for (const ticket of rows.ticket ?? []) db.prepare('INSERT INTO ticket VALUES (?,?)').run((ticket as { id: string }).id, JSON.stringify(ticket))
+  for (const decision of rows.decision ?? []) {
+    const { id, threadKey } = decision as { id: string; threadKey: string }
+    db.prepare('INSERT INTO decision VALUES (?,?,?)').run(id, threadKey, JSON.stringify(decision))
+  }
+  for (const thread of rows.thread ?? []) db.prepare('INSERT INTO thread VALUES (?,?)').run((thread as { key: string }).key, JSON.stringify(thread))
+  for (const trigger of rows.trigger ?? []) {
+    const { id, at } = trigger as { id: string; at: string }
+    db.prepare('INSERT INTO trigger VALUES (?,?,?)').run(id, JSON.stringify(trigger), at)
+  }
+  for (const row of rows.triggerThread ?? []) {
+    const { thread, id, at, human } = row as { thread: string; id: string; at: string; human: boolean }
+    db.prepare('INSERT INTO trigger_thread (thread, id, at, human) VALUES (?,?,?,?)').run(thread, id, at, human ? 1 : 0)
+  }
+  for (const receipt of rows.outbox ?? []) db.prepare('INSERT INTO outbox VALUES (?,?)').run((receipt as { id: string }).id, JSON.stringify(receipt))
+  db.close()
+}
+const issueUrl = (number: number, pull = false) => `https://github.com/acme/widgets/${pull ? 'pull' : 'issues'}/${number}`
+const legacyThread = (number: number, url?: string) => ({ key: `github:${number}`, ref: { source: 'github', id: String(number) },
+  createdAt: '2026-09-01T00:00:00.000Z', subscriptions: ['t1'], correlated: [], pending: [], lastAt: '2026-09-02T00:00:00.000Z',
+  meta: { title: `#${number}`, number, isPr: false, ...url ? { url } : {} } })
+const legacyChannel = (number: number) => ({ source: 'github', thread: `github:${number}`, address: { number: String(number), url: issueUrl(number) } })
+
+it('names Thread IDs written before IDs named a repository after the repository their records name', () => {
+  const path = join(directory, 'db.sqlite')
+  schema11(path, {
+    // A cursor and a CI fingerprint the build already wrote for the repository win over the legacy ones they replace.
+    'github-cursor:12': '2026-09-01T00:00:00.000Z', 'github-cursor:acme/widgets#12': '2026-09-05T00:00:00.000Z',
+    'github-ci:12': { fingerprint: 'old', revision: 1 }, 'github-ci:acme/widgets#12': { fingerprint: 'new', revision: 2 },
+    'github-retry': { 12: { since: '2026-09-04T00:00:00.000Z', pr: false } }, 'github-since': '2026-09-06T00:00:00.000Z',
+  }, {
+    thread: [legacyThread(12, issueUrl(12)), legacyThread(13, issueUrl(13, true))],
+    trigger: [{ id: 'trig', source: 'github', threads: [{ source: 'github', id: '12' }], actor: { source: 'github', id: 'alice' },
+      human: true, at: '2026-09-01T00:00:00.000Z', text: 'fix', channel: legacyChannel(12), url: issueUrl(12), meta: {} }],
+    triggerThread: [{ thread: 'github:12', id: 'trig', at: '2026-09-01T00:00:00.000Z', human: true }],
+    ticket: [{ id: 't1', title: 'Fix', channels: [legacyChannel(12)], follows: [{ thread: 'github:13', own: false }] }],
+    decision: [{ id: 'd1', threadKey: 'github:12', triggerIds: ['trig'], kind: 'accept', reason: [], at: '1', policyVersion: 'v1' }],
+    outbox: [{ id: 'r1', channel: legacyChannel(12), text: 'Done', kind: 'reply', attempts: 0, error: '' }],
+  })
+  const store = new Store(path)
+  expect(store.get(KV.store.schema)).toBe(SCHEMA_VERSION)
+  expect(store.keys('github-cursor:')).toEqual(['github-cursor:acme/widgets#12'])
+  expect(store.get('github-cursor:acme/widgets#12')).toBe('2026-09-05T00:00:00.000Z')
+  expect(store.get('github-ci:acme/widgets#12')).toEqual({ fingerprint: 'new', revision: 2 })
+  expect(store.get(KV.github.retries)).toEqual({ 'acme/widgets#12': { since: '2026-09-04T00:00:00.000Z', pr: false } })
+  // `since` stays account-wide: notifications are one list the Source filters by repository.
+  expect(store.get('github-since')).toBe('2026-09-06T00:00:00.000Z')
+  expect(store.threads.get('github:acme/widgets#12')!.ref).toEqual({ source: 'github', id: 'acme/widgets#12' })
+  expect(store.threads.get('github:acme/widgets#12')!.subscriptions).toEqual(['t1'])
+  expect(store.triggers.get('trig')!.threads).toEqual([{ source: 'github', id: 'acme/widgets#12' }])
+  expect(store.triggers.get('trig')!.channel!.thread).toBe('github:acme/widgets#12')
+  expect(store.db.prepare('SELECT thread FROM trigger_thread WHERE id = ?').get('trig')).toEqual({ thread: 'github:acme/widgets#12' })
+  expect(store.db.prepare('SELECT thread FROM decision WHERE id = ?').get('d1')).toEqual({ thread: 'github:acme/widgets#12' })
+  expect(JSON.parse(String(store.db.prepare('SELECT value FROM decision WHERE id = ?').get('d1')!.value)).threadKey)
+    .toBe('github:acme/widgets#12')
+  const ticket = JSON.parse(String(store.db.prepare('SELECT value FROM ticket WHERE id = ?').get('t1')!.value))
+  expect(ticket.channels[0].thread).toBe('github:acme/widgets#12')
+  expect(ticket.follows[0].thread).toBe('github:acme/widgets#13')
+  expect(JSON.parse(String(store.db.prepare('SELECT value FROM outbox WHERE id = ?').get('r1')!.value)).channel.thread)
+    .toBe('github:acme/widgets#12')
+  store.close()
+})
+
+it('leaves a database whose records name no repository alone when no Thread ID predates the repository one', () => {
+  const path = join(directory, 'db.sqlite')
+  schema11(path, { 'github-since': '2026-09-01T00:00:00.000Z' })
+  const store = new Store(path)
+  expect(store.get(KV.store.schema)).toBe(SCHEMA_VERSION)
+  expect(store.get('github-since')).toBe('2026-09-01T00:00:00.000Z')
+  store.close()
+})
+
+it('refuses to name Thread IDs written before IDs named a repository when no record names one', () => {
+  const path = join(directory, 'db.sqlite')
+  schema11(path, { 'github-cursor:12': '2026-09-01T00:00:00.000Z' }, { thread: [legacyThread(12)] })
+  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 11: its migration to schema 12 failed: the Threads: Thread IDs written before IDs named a repository name no repository/)
+  const db = new DatabaseSync(path)
+  expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '11' })
+  db.close()
+})
+
+it('refuses to name Thread IDs written before IDs named a repository when their records name several', () => {
+  const path = join(directory, 'db.sqlite')
+  schema11(path, {}, { thread: [legacyThread(12, issueUrl(12)), { ...legacyThread(13), meta: { url: 'https://github.com/other/repo/issues/13' } }] })
+  expect(() => new Store(path)).toThrow(/name acme\/widgets, other\/repo, so which repository they belong to is unknown/)
 })

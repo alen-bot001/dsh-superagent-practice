@@ -1,12 +1,13 @@
 /**
- * Migrates a schema 10 database to schema 11 in a single transaction so runtime readers never convert legacy shapes.
+ * Migrates a schema 10 database to schema 12 in a single transaction so runtime readers never convert legacy shapes.
  * Databases older than schema 10 are rejected: this version cannot migrate them.
  */
 import { basename } from 'node:path'
 import { z } from 'zod'
 import { isoTime, said, type AcceptMode, type AdmissionCell, type ChannelRef, type Decision, type Execution, type Follow, type MandateBasis,
-  type Reason, type Thread, type Ticket, type TicketInput, type TriggerDisposition } from '../core/index.ts'
+  type Reason, type Thread, type Ticket, type TicketInput, type Trigger, type TriggerDisposition } from '../core/index.ts'
 import { feishuChatLink } from '../sources/feishu-channel.ts'
+import { SOURCE as GITHUB, githubCiThreadId, githubThreadId, githubThreadName } from '../sources/github-trigger.ts'
 import { POLL_HORIZON_MS } from '../sources/poll.ts'
 import { SettingsSchema, policyVersion, type SettingsOrigin } from '../policy.ts'
 import { autoMergeThreshold, teamDefaults } from './context.ts'
@@ -17,7 +18,7 @@ import type { SettingsVersion, Store } from './store.ts'
 import { Versions } from './versions.ts'
 import { KV, type Key } from '../kv.ts'
 
-export const SCHEMA_VERSION = 11
+export const SCHEMA_VERSION = 12
 /** The oldest database schema version this build can open and migrate directly. */
 export const OLDEST_SCHEMA = 10
 /** Returns an error message explaining why `version` cannot be opened: older schemas need a new state directory. */
@@ -88,6 +89,176 @@ export function migrateTo11(store: Store): void {
   }
   step('the reasons', () => { reasonsAsCodes(store) })
   step('the Triggers\' times', () => { triggerTimes(store) })
+}
+
+/** The repository path of a GitHub Issue or PR URL: the one place a record written before Thread IDs named a repository keeps it. */
+const REPOSITORY_URL = /^https?:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/(?:issues|pull)\/\d+/
+/** A repository-qualified Thread ID written by a build that already names its repository. */
+const QUALIFIED_ID = /^(?:github:|[a-z-]+:)?([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#/
+/**
+ * The repository every Thread ID written before IDs named a repository belonged to, read from the records themselves:
+ * the Issue and PR URLs they kept, and the repository-qualified Thread IDs written since. A database whose records name
+ * none of them falls back to the one repository its settings watch, which is the repository the deployment watched when
+ * these IDs were written. Several names (or none at all) leave the IDs unattributed and the migration fails, because
+ * picking one would silently move Threads to a repository they may not belong to.
+ */
+function legacyRepository(store: Store): string {
+  const named = new Set<string>()
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') {
+      const url = REPOSITORY_URL.exec(value)
+      if (url?.[1]) named.add(url[1])
+      const qualified = QUALIFIED_ID.exec(value)
+      if (qualified?.[1]) named.add(qualified[1])
+      return
+    }
+    if (Array.isArray(value)) { for (const item of value) visit(item); return }
+    if (value && typeof value === 'object') for (const item of Object.values(value)) visit(item)
+  }
+  for (const table of ['thread', 'trigger', 'ticket', 'decision', 'outbox']) {
+    for (const row of store.db.prepare(`SELECT value FROM ${table}`).all()) visit(JSON.parse(String(row.value)))
+  }
+  for (const name of [...store.keys('github-'), ...store.keys('thread-since:github:')]) {
+    visit(name)
+    visit(store.get<unknown>(name))
+  }
+  if (named.size === 0) {
+    const config = store.settings().sources.github?.config as { repositories?: unknown; repository?: unknown } | undefined
+    const rows = Array.isArray(config?.repositories) ? config.repositories : []
+    for (const row of rows) if (typeof (row as { name?: unknown })?.name === 'string') named.add((row as { name: string }).name)
+    if (named.size === 0 && typeof config?.repository === 'string' && config.repository) named.add(config.repository)
+  }
+  if (named.size === 1) return [...named][0]!
+  throw new Error(named.size
+    ? `Thread IDs written before IDs named a repository name ${[...named].sort().join(', ')}, so which repository they belong to is unknown`
+    : 'Thread IDs written before IDs named a repository name no repository, so which repository they belong to is unknown')
+}
+/**
+ * Rewrites Thread IDs written before a Thread ID named its repository (`12`, `ci:main`) into the repository-qualified
+ * form (`owner/name#12`, `owner/name#ci:main`), so that watching several repositories cannot make a bare number read
+ * another repository's Issue. The repository comes from the URLs the records kept; a database whose records name none
+ * or several repositories is left unchanged and the migration fails rather than guess.
+ */
+export function migrateTo12(store: Store): void {
+  let repository: string | undefined
+  const qualified = (): string => repository ??= legacyRepository(store)
+  const renameId = (id: string): string | undefined => {
+    const name = githubThreadName(id)
+    if (!name || name.repository) return undefined
+    return name.number !== undefined ? githubThreadId(qualified(), name.number) : githubCiThreadId(qualified(), name.branch ?? 'HEAD')
+  }
+  const renameKey = (key: string): string | undefined => {
+    if (!key.startsWith(`${GITHUB}:`)) return undefined
+    const id = renameId(key.slice(GITHUB.length + 1))
+    return id === undefined ? undefined : `${GITHUB}:${id}`
+  }
+  step('the Threads', () => {
+    for (const row of store.db.prepare('SELECT key, value FROM thread').all()) {
+      const key = String(row.key)
+      const renamed = renameKey(key)
+      if (renamed === undefined) continue
+      const thread = JSON.parse(String(row.value)) as Thread
+      store.db.prepare('DELETE FROM thread WHERE key = ?').run(key)
+      store.db.prepare('INSERT INTO thread (key, value) VALUES (?, ?)')
+        .run(renamed, JSON.stringify({ ...thread, key: renamed, ref: { ...thread.ref, id: renamed.slice(GITHUB.length + 1) } }))
+    }
+  })
+  step('the Triggers', () => {
+    for (const row of store.db.prepare('SELECT id, value FROM trigger').all()) {
+      const trigger = JSON.parse(String(row.value)) as Trigger
+      let changed = false
+      const threads = trigger.threads.map(ref => {
+        const id = ref.source === GITHUB ? renameId(ref.id) : undefined
+        if (id === undefined) return ref
+        changed = true
+        return { ...ref, id }
+      })
+      const thread = trigger.channel?.source === GITHUB ? renameKey(trigger.channel.thread) : undefined
+      if (thread !== undefined) changed = true
+      if (!changed) continue
+      store.db.prepare('UPDATE trigger SET value = ? WHERE id = ?')
+        .run(JSON.stringify({ ...trigger, threads, ...thread === undefined ? {} : { channel: { ...trigger.channel!, thread } } }), String(row.id))
+    }
+  })
+  step('the Triggers\' Threads', () => {
+    for (const row of store.db.prepare('SELECT thread, id FROM trigger_thread').all()) {
+      const renamed = renameKey(String(row.thread))
+      if (renamed === undefined) continue
+      const exists = store.db.prepare('SELECT 1 FROM trigger_thread WHERE thread = ? AND id = ?').get(renamed, String(row.id))
+      if (exists) store.db.prepare('DELETE FROM trigger_thread WHERE thread = ? AND id = ?').run(String(row.thread), String(row.id))
+      else store.db.prepare('UPDATE trigger_thread SET thread = ? WHERE thread = ? AND id = ?').run(renamed, String(row.thread), String(row.id))
+    }
+  })
+  step('the Tickets', () => {
+    for (const row of store.db.prepare('SELECT id, value FROM ticket').all()) {
+      const ticket = JSON.parse(String(row.value)) as Ticket
+      let changed = false
+      const channels = ticket.channels.map(channel => {
+        const thread = channel.source === GITHUB ? renameKey(channel.thread) : undefined
+        if (thread === undefined) return channel
+        changed = true
+        return { ...channel, thread }
+      })
+      const follows = ticket.follows?.map(follow => {
+        const thread = renameKey(follow.thread)
+        if (thread === undefined) return follow
+        changed = true
+        return { ...follow, thread }
+      })
+      if (!changed) continue
+      store.db.prepare('UPDATE ticket SET value = ? WHERE id = ?').run(JSON.stringify({ ...ticket, channels, follows }), String(row.id))
+    }
+  })
+  step('the Decisions', () => {
+    for (const row of store.db.prepare('SELECT id, thread, value FROM decision').all()) {
+      const decision = JSON.parse(String(row.value)) as Decision
+      const thread = renameKey(String(row.thread)) ?? String(row.thread)
+      const threadKey = renameKey(decision.threadKey) ?? decision.threadKey
+      if (thread === String(row.thread) && threadKey === decision.threadKey) continue
+      store.db.prepare('UPDATE decision SET thread = ?, value = ? WHERE id = ?').run(thread, JSON.stringify({ ...decision, threadKey }), String(row.id))
+    }
+  })
+  step('the Thread cursors', () => {
+    for (const name of [...store.keys('github-cursor:')]) {
+      // Thread cursors and CI fingerprints are keyed by Thread ID after their family, not by a Thread key.
+      const id = renameId(name.slice('github-cursor:'.length))
+      const renamed = id === undefined ? undefined : `github-cursor:${id}`
+      if (renamed === undefined) continue
+      const current = store.get<string>(renamed)
+      const value = store.get<string>(name)
+      // Both cursors may exist: keep the later read so the migration never reads a message twice or skips one.
+      if (value !== undefined && (current === undefined || value > current)) store.set(renamed, value)
+      store.delete(name)
+    }
+    for (const name of [...store.keys('github-ci:')]) {
+      const id = renameId(name.slice('github-ci:'.length))
+      const renamed = id === undefined ? undefined : `github-ci:${id}`
+      if (renamed === undefined) continue
+      const current = store.get<{ revision: number }>(renamed)
+      const value = store.get<{ revision: number }>(name)
+      if (value && (current === undefined || value.revision > current.revision)) store.set(renamed, value)
+      store.delete(name)
+    }
+    const retries = store.get(KV.github.retries) ?? {}
+    const renamed: typeof retries = {}
+    let changed = false
+    for (const [id, retry] of Object.entries(retries)) {
+      const next = renameId(id)
+      if (next === undefined) { renamed[id] = retry; continue }
+      changed = true
+      const existing = renamed[next]
+      renamed[next] = existing && existing.since > retry.since ? existing : retry
+    }
+    if (changed) store.set(KV.github.retries, renamed)
+  })
+  step('the outbox', () => {
+    for (const row of store.db.prepare('SELECT id, value FROM outbox').all()) {
+      const receipt = JSON.parse(String(row.value)) as { channel?: ChannelRef }
+      const thread = receipt.channel?.source === GITHUB ? renameKey(receipt.channel.thread) : undefined
+      if (thread === undefined) continue
+      store.db.prepare('UPDATE outbox SET value = ? WHERE id = ?').run(JSON.stringify({ ...receipt, channel: { ...receipt.channel!, thread } }), String(row.id))
+    }
+  })
 }
 /**
  * Normalize trigger and thread timestamps to fixed-width millisecond ISO strings so lexicographical text order matches
