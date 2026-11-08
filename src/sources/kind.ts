@@ -92,6 +92,12 @@ export interface SourceKind<C extends Record<string, unknown> = Record<string, u
   /** Validates stored and submitted configuration and fills defaults. */
   schema: z.ZodType<C>
   fields: FieldSpec[]
+  /**
+   * Configuration as the panel's form holds it, such as showing a deprecated single value as the row list that replaces
+   * it. The form saves this value, so a deprecated field the form does not show is dropped from the stored configuration
+   * once the panel saves; reading the stored configuration never rewrites it.
+   */
+  formConfig?(config: C): C
   /** Health entry names owned by this kind under `health[...]`; no other kind or core loop may report them. */
   health: string[]
   /** Listening rule for a trigger (or recorded Mandate basis) of this kind; kinds without `scope` listen to everything they produce and observe none of it. */

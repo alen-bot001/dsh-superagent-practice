@@ -11,6 +11,8 @@ import { snapshot, threadSummary, ticketSummary, triggerView } from '../src/app/
 import { basisFacts, ticketDetail } from '../src/app/views/tickets.ts'
 import { threadDetail } from '../src/app/views/threads.ts'
 import { droppedReplies, sourcesStatus } from '../src/app/views/sources.ts'
+import { settingsView } from '../src/app/views/settings.ts'
+import { watchedRepositories } from '../src/deployment.ts'
 import { overview } from '../src/app/views/overview.ts'
 import { markdown, plain } from '../src/app/views/text.ts'
 import { policyHistory } from '../src/app/settings-history.ts'
@@ -96,6 +98,21 @@ it('classifies a Thread by what it is doing, and offers a filtered Trigger of a 
   // A queued Trigger waits for Eval already, and an automated one is not offered.
   expect(rows.map(row => row.actions.requeue)).toEqual([true, false, false])
   expect(rows[0]!.actor.name).toEqual({ zh: 'Alice', en: 'Alice' })
+})
+
+it('shows a Source that still names one repository in the deprecated field as the row the panel edits', () => {
+  const host = views()
+  const settings = store.settings()
+  store.saveSettings({ ...settings, sources: { ...settings.sources, github: { enabled: true, config: { repository: 'alen-bot001/test_task' } } } })
+  const view = settingsView(store, host.sources, {}, {}, '/srv/dsh-superagent')
+  const github = view.sources.find(source => source.id === 'github')!
+  // The form edits rows, so the deprecated single value shows as the row it now means.
+  expect(github.value.config.repositories).toEqual([{ name: 'alen-bot001/test_task' }])
+  expect(github.value.config.repository).toBe('')
+  // Reading the panel rewrites neither the stored configuration nor the repository the runtime watches.
+  expect(store.settings().sources.github!.config).toMatchObject({ repository: 'alen-bot001/test_task' })
+  expect(watchedRepositories(github.value.config as { repositories: { name: string }[]; repository: string }))
+    .toEqual(['alen-bot001/test_task'])
 })
 
 it('states each Source by the first state that holds', () => {

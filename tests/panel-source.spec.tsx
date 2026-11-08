@@ -93,6 +93,22 @@ it('renders each Source\'s settings from its kind\'s fields and saves one Source
   expect(server.revisions['source:github']).toBe(6)
 })
 
+it('shows a repository named in the deprecated single value as the row the panel edits, and saves the row list', async () => {
+  // A configuration written before a Source could watch several repositories names one repository in `repository`.
+  server.settings.sources.github = { enabled: true, config: { repository: 'acme/widgets', cli: 'gh-agent' } }
+  await mount()
+  await click(tab(zh['tab.settings']))
+  const github = all('.dt-card')[1]!
+  expect(github.querySelectorAll('.dt-rows-item')).toHaveLength(1)
+  expect(field<HTMLInputElement>('监听的仓库').value).toBe('acme/widgets')
+  await type(field<HTMLInputElement>('监听的仓库'), 'acme/renamed')
+  await act(async () => { github.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await settle()
+  // Saving stores the rows and drops the deprecated field, so the form and the watch list name the same repository.
+  expect(server.requests.find(request => request.path === 'settings/source:github')).toMatchObject({ method: 'PUT', body: { value: {
+    config: { repositories: [{ name: 'acme/renamed' }], repository: '' } } } })
+  expect(server.settings.sources.github!.config).toMatchObject({ repositories: [{ name: 'acme/renamed' }], repository: '' })
+})
+
 it('shows the account each CLI signs in as, and keeps a saved CLI on screen while dsh-superagent restarts', async () => {
   await mount()
   await click(tab(zh['tab.settings']))

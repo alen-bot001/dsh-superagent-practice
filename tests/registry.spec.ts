@@ -12,6 +12,7 @@ import { feishuChannel, feishuTrigger, feishuTriggerId } from '../src/sources/fe
 import { testDeployment } from './fixtures/deployment.ts'
 import { feishuKind } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
+import { watchedRepositories } from '../src/deployment.ts'
 
 const probe: SourceKind<{ interval: number }> = {
   kind: 'probe', title: { zh: '探针', en: 'Probe' }, description: { zh: '', en: '' }, health: [],
@@ -30,6 +31,17 @@ describe('Source registry', () => {
       { id: 'probe', kind: 'probe', enabled: false, config: { interval: 9 }, installed: true },
       { id: 'retired', kind: 'retired', enabled: true, config: { x: 1 }, installed: false },
     ])
+  })
+  it('saves the repository rows the panel edits in place of the deprecated single value, watching the same repositories', () => {
+    const settings = SettingsSchema.parse({ sources: { github: { enabled: true, config: { repository: 'alen-bot001/test_task' } } } })
+    const sources = new SourceRegistry(() => settings)
+    sources.register(githubKind)
+    const config = githubKind.formConfig!(sources.instance('github')!.config as never) as Record<string, unknown>
+    // The form holds the row and no deprecated single value, so a save stores the row list alone.
+    expect(config).toMatchObject({ repository: '', repositories: [{ name: 'alen-bot001/test_task' }] })
+    const saved = sources.validate('github', { enabled: true, config })
+    expect(watchedRepositories(saved.config as { repositories: { name: string }[]; repository: string }))
+      .toEqual(['alen-bot001/test_task'])
   })
   it('validates submitted instances with the kind schema and refuses kinds that are not installed', () => {
     const sources = new SourceRegistry(() => SettingsSchema.parse({}))

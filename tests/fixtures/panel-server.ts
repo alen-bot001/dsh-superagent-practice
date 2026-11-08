@@ -127,7 +127,8 @@ function healthOf(name: string): Health {
 const problemOf_ = (id: string) => [server.setup.problem, server.setup.feishuProblem].find(item => item?.place === id) ?? undefined
 function sourceSettings(): SourceView[] {
   return KINDS.map(kind => {
-    const config = kind.schema.parse(server.settings.sources[kind.kind]?.config ?? {})
+    const parsed = kind.schema.parse(server.settings.sources[kind.kind]?.config ?? {})
+    const config = kind.formConfig?.(parsed) ?? parsed
     const problem = problemOf_(kind.kind)
     const { admission: _admission, ...part } = server.settings.policy.sources[kind.kind] ?? { allowed: [], admission: {} }
     const sync = kind.policy?.sync && { label: kind.policy.sync.label, ready: kind.policy.sync.ready(kind.policy.schema.parse(part)),

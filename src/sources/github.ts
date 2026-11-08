@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { key, type Thread } from '../core/index.ts'
 import { sameName } from '../infra/text.ts'
-import { GithubAccountsSchema, primaryRepository, watchedRepositories } from '../deployment.ts'
+import { GithubAccountsSchema, primaryRepository, repositoryRows, watchedRepositories } from '../deployment.ts'
 import { CliError, validItems, type Tally } from '../infra/commands.ts'
 import { ciCounts, ciFact, ciFailures, ciSummary, githubThreadContext, pullChecks } from './github-read.ts'
 import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, githubAddress, githubCiThreadId, githubThread, githubThreadId,
@@ -40,6 +40,9 @@ export const githubKind: SourceKind<GithubConfig> = {
   title: { zh: 'GitHub', en: 'GitHub' },
   description: { zh: '智能体的 GitHub 账号；接收这些仓库里发给它的通知、已订阅 Issue 与 PR 的讨论、CI 状态变化和 PR 合并关闭。', en: 'The agent\'s GitHub accounts; receives notifications to it in these repositories, discussion on subscribed Issues and PRs, CI changes, and PR merge or close.' },
   schema: GithubConfigSchema,
+  // The panel edits rows, so a configuration that still names one repository in the deprecated field shows that row and the
+  // save stores the rows only, which keeps the watched repositories the same.
+  formConfig(config) { return { ...config, repository: '', repositories: repositoryRows(config) } },
   fields: [
     { key: 'repositories', type: 'rows', label: { zh: '监听的仓库', en: 'Repositories' },
       hint: { zh: '每行写作 owner/name。这个来源接收这些仓库的通知和讨论；保存时逐个检查智能体账号能否推送到每一行，然后重启 dsh-superagent。', en: 'One owner/name per row. This Source receives these repositories\' notifications and discussion; saving checks that the agent account can push to every row, then restarts dsh-superagent.' },

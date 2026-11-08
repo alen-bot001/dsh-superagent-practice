@@ -63,6 +63,13 @@ export function watchedRepositories(accounts: { repositories: { name: string }[]
   const named = accounts.repositories.length ? accounts.repositories.map(row => row.name) : legacy
   return [...new Map(named.map(name => [name.toLowerCase(), name])).values()]
 }
+/**
+ * The `repositories` rows the panel edits. A configuration written before a Source could watch several repositories names
+ * one in the deprecated `repository` field, which is shown as the row it now means so that it can be edited or removed.
+ */
+export function repositoryRows(accounts: { repositories: { name: string }[]; repository: string }): { name: string }[] {
+  return accounts.repositories.length ? accounts.repositories : watchedRepositories(accounts).map(name => ({ name }))
+}
 export const FeishuBotSchema = z.object({ cli: z.string().trim().default('') })
 /** Source configuration keys that affect deployment setup and trigger a restart when changed. */
 export const SETUP_FIELDS: Readonly<Record<string, readonly string[]>> = { github: Object.keys(GithubAccountsSchema.shape), feishu: Object.keys(FeishuBotSchema.shape) }
