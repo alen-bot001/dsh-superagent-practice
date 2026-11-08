@@ -345,10 +345,10 @@ describe('github source', () => {
   })
   it('reads the address of an Issue, a PR or a review comment of the repository, and nothing else', () => {
     expect(githubAddress('https://api.github.com/repos/acme/widgets/pulls/9', ['acme/widgets'])).toEqual({ repository: 'acme/widgets', number: 9, pr: true })
-    expect(githubAddress('https://api.github.com/repos/Acme/Widgets/issues/12', ['acme/widgets'])).toEqual({ number: 12, pr: false })
-    expect(githubAddress('https://github.com/acme/widgets/pull/7/#discussion_r5', ['acme/widgets'])).toEqual({ number: 7, pr: true,
+    expect(githubAddress('https://api.github.com/repos/Acme/Widgets/issues/12', ['acme/widgets'])).toEqual({ repository: 'acme/widgets', number: 12, pr: false })
+    expect(githubAddress('https://github.com/acme/widgets/pull/7/#discussion_r5', ['acme/widgets'])).toEqual({ repository: 'acme/widgets', number: 7, pr: true,
       discussion: 5 })
-    expect(githubAddress('https://github.com/acme/widgets/issues/7#issuecomment-3', ['acme/widgets'])).toEqual({ number: 7, pr: false })
+    expect(githubAddress('https://github.com/acme/widgets/issues/7#issuecomment-3', ['acme/widgets'])).toEqual({ repository: 'acme/widgets', number: 7, pr: false })
     for (const url of ['https://github.com/acme/gadgets/pull/7', 'https://api.github.com/repos/acme/widgets/commits/abc',
       'https://github.com/acme/widgets/pull/7/files', '']) {
       expect(githubAddress(url, ['acme/widgets'])).toBeUndefined()
@@ -615,7 +615,7 @@ describe('github source', () => {
     expect(h.store.get('github-cursor:acme/widgets#14')).toBeUndefined()
     expect(h.store.threads.get('github:acme/widgets#14')!.meta.pollError).toContain('deleted')
     // Without a Thread to keep it, the Source's health names it.
-    expect(h.health.github).toMatchObject({ state: 'ready', detail: '2 notifications; next poll ≥ 60s; deleted on GitHub: #14, #15' })
+    expect(h.health.github).toMatchObject({ state: 'ready', detail: '2 notifications; next poll ≥ 60s; deleted on GitHub: acme/widgets#14, acme/widgets#15' })
     // GitHub also answers 404 for a private repository the agent lost access to: that is a failure read again.
     github(h, { notifications: [notification(16)] })
     await expect(pollRound(h)).rejects.toThrow('#16: Error: gh: Not Found (HTTP 404)')
@@ -719,7 +719,7 @@ describe('github source', () => {
   it('reads a subscribed default-branch CI Thread as no Issue, and keeps no poll error on it', async () => {
     const h = host()
     h.store.tickets.save(openTicket('ticket'))
-    subscribed(h, { source: 'github', id: 'ci:main' })
+    subscribed(h, { source: 'github', id: 'acme/widgets#ci:main' })
     h.store.threads.save({ ...h.store.threads.get('github:acme/widgets#ci:main')!, lastAt: new Date().toISOString() })
     const reads = github(h, {})
     await pollGithubThreads(h)
@@ -758,7 +758,7 @@ describe('github source', () => {
     })
     // With every failure a 410, the round succeeds and names what GitHub deleted.
     await pollRound(h)
-    expect(h.health.github).toMatchObject({ state: 'ready', detail: expect.stringContaining('deleted on GitHub: #5, #7, #8') })
+    expect(h.health.github).toMatchObject({ state: 'ready', detail: expect.stringContaining('deleted on GitHub: acme/widgets#5, acme/widgets#7, acme/widgets#8') })
     h.store.close()
   })
   it('waits for setup, pauses while the Source is off, and counts only consecutive failed polls towards an error', async () => {
@@ -840,7 +840,7 @@ describe('github source', () => {
     notify(h, [issue(12, { body: '@agent-bot please fix the login' }), issue(13, { pull_request: { url: 'x' } }), issue(14, agents)])
     await pollRound(h)
     expect(h.receive).toHaveBeenCalledOnce()
-    const id = key('github-issue', '12')
+    const id = key('github-issue', 'acme/widgets#12')
     const url = 'https://github.com/acme/widgets/issues/12'
     expect(h.receive.mock.calls[0]![0]).toEqual({ id, source: 'github', threads: [{ source: 'github', id: 'acme/widgets#12' }],
       actor: { source: 'github', id: 'alice' }, human: true, at: '2026-09-09T00:00:00Z',
@@ -872,8 +872,8 @@ describe('github source', () => {
     await pollRound(h)
     await pollRound(h)
     expect(h.receive).toHaveBeenCalledTimes(2)
-    expect(h.store.read.threadTriggers('github:acme/widgets#12', 10).map(trigger => trigger.id)).toEqual([key('github-issue', '12')])
-    expect(h.store.decisions.byThread('github:acme/widgets#12').map(decision => decision.triggerIds)).toEqual([[key('github-issue', '12')]])
+    expect(h.store.read.threadTriggers('github:acme/widgets#12', 10).map(trigger => trigger.id)).toEqual([key('github-issue', 'acme/widgets#12')])
+    expect(h.store.decisions.byThread('github:acme/widgets#12').map(decision => decision.triggerIds)).toEqual([[key('github-issue', 'acme/widgets#12')]])
     h.store.close()
   })
   it('takes in an Issue without a mention as a Trigger that is not addressed, and a bot\'s Issue as automated', async () => {
@@ -882,9 +882,9 @@ describe('github source', () => {
     await pollRound(h)
     const taken = (number: number) => h.receive.mock.calls.map(([trigger]) => trigger).find(trigger => trigger.meta.number === number)
     const [plain, bot] = [taken(12), taken(15)]
-    expect(plain).toMatchObject({ id: key('github-issue', '12'), human: true })
+    expect(plain).toMatchObject({ id: key('github-issue', 'acme/widgets#12'), human: true })
     expect(plain).not.toHaveProperty('addressed')
-    expect(bot).toMatchObject({ id: key('github-issue', '15'), human: false })
+    expect(bot).toMatchObject({ id: key('github-issue', 'acme/widgets#15'), human: false })
     // The Issue's own read position moves past what this round read.
     expect(Date.parse(h.store.get<string>('github-cursor:acme/widgets#12')!)).toBeGreaterThan(Date.parse('2026-09-08T00:00:00.000Z'))
     h.store.close()
@@ -1025,7 +1025,7 @@ it('reports GitHub as failing only after the configured number of consecutive fa
   expect(pollFailure(1, 3, eof)).toBeUndefined()
   expect(pollFailure(2, 3, eof)).toBeUndefined()
   expect(pollFailure(3, 3, eof)).toEqual({ state: 'error', detail: '3 consecutive failed polls; last: Error: Get "https://api.github.com/x": EOF', code: 'pollFailures', values: { count: '3', error: 'Error: Get "https://api.github.com/x": EOF' } })
-  expect(githubKind.schema.parse({})).toEqual({ repository: '', cli: '', pollSeconds: 60, failuresBeforeError: 3, observeIssues: false,
+  expect(githubKind.schema.parse({})).toEqual({ repository: '', repositories: [], cli: '', pollSeconds: 60, failuresBeforeError: 3, observeIssues: false,
     observePulls: false, observeComments: false, observeCi: false })
 })
 describe('feishu event consumer', () => {
@@ -1251,7 +1251,7 @@ describe('observing the GitHub repository', () => {
     observe(h, { observeComments: true })
     h.store.set('github-since', at(-24))
     for (const stream of ['comments', 'review-comments']) {
-      h.store.set(`github-stream:${stream}`, { since: at(0), started: { comments: at(0) } })
+      h.store.set(`github-stream:acme/widgets:${stream}`, { since: at(0), started: { comments: at(0) } })
     }
     const comment = (id: number, fields: Record<string, unknown>) => ({ id, body: `comment ${id}`, user: { login: 'carol', type: 'User' },
       created_at: at(1), updated_at: at(1), ...fields })
@@ -1274,7 +1274,7 @@ describe('observing the GitHub repository', () => {
     h.store.set('github-since', at(-24))
     const kind = (stream: string) => stream === 'issues' ? 'issues' : 'comments'
     for (const stream of ['issues', 'comments', 'review-comments']) {
-      h.store.set(`github-stream:${stream}`, { since: at(0), started: { [kind(stream)]: at(0) } })
+      h.store.set(`github-stream:acme/widgets:${stream}`, { since: at(0), started: { [kind(stream)]: at(0) } })
     }
     const comment = { id: 1, body: 'looks off', user: { login: 'carol', type: 'User' }, created_at: at(1), updated_at: at(1),
       issue_url: 'https://api.github.com/repos/acme/widgets/issues/7', html_url: 'https://github.com/acme/widgets/issues/7#issuecomment-1' }
@@ -1401,7 +1401,7 @@ describe('observing the GitHub repository', () => {
     answers.branch = { sha: 'ccc3333', checks: [check('lint', 'success'), check('e2e', 'success')] }
     await pollRound(h)
     expect(texts()).toEqual(['CI failed 1/2 on main at bbb2222: lint; 1 still running', 'CI passed 2/2 on main at ccc3333'])
-    expect(h.receive.mock.calls[0]![0]).toMatchObject({ human: false, actor: { id: '' }, threads: [{ source: 'github', id: 'ci:main' }],
+    expect(h.receive.mock.calls[0]![0]).toMatchObject({ human: false, actor: { id: '' }, threads: [{ source: 'github', id: 'acme/widgets#ci:main' }],
       meta: { ci: true, branch: 'main', sha: 'bbb2222' }, url: 'https://github.com/acme/widgets/commit/bbb2222' })
     expect(h.receive.mock.calls[0]![0].text).toContain('Read github/commits/bbb2222/checks for every check.')
     h.store.close()
