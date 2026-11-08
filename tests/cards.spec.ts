@@ -116,7 +116,7 @@ it('keeps each role\'s own instructions short', () => {
   expect(workerPrompt.length).toBeLessThan(1000)
 })
 
-const trigger: Trigger = { id: 'request-1', source: 'github', threads: [{ source: 'github', id: '42' }], actor: { source: 'github', id: 'alice' }, human: true,
+const trigger: Trigger = { id: 'request-1', source: 'github', threads: [{ source: 'github', id: 'acme/widgets#42' }], actor: { source: 'github', id: 'alice' }, human: true,
   at: '2026-09-09T00:00:00Z', text: 'Please inspect the failing check.\n' + 'Additional context. '.repeat(20), meta: {} }
 const SUMMARY = 'The focused check passed.\n' + 'Detailed evidence. '.repeat(20)
 const ticket: Ticket = { id: 'ticket-1', title: 'Inspect failing check', decisionId: 'd1', channels: [], inputs: [], undelivered: [],
@@ -125,15 +125,15 @@ const ticket: Ticket = { id: 'ticket-1', title: 'Inspect failing check', decisio
   createdAt: '2026-09-09T00:00:00Z', updatedAt: '2026-09-09T00:00:00Z',
   origin: { triggerId: 'request-1', triggerIds: ['request-1'] },
   execution: { name: 'ticket-1', directory: '/worktrees/ticket-1', assignment: 'Inspect the check.' },
-  follows: [{ thread: 'github:42', own: true }] }
+  follows: [{ thread: 'github:acme/widgets#42', own: true }] }
 it('shows a trigger and a ticket as cards with a short preview and references to their bodies', () => {
   const card = triggerCard(trigger, { fanout: ['ticket-1'], evalId: 'e1', decisionId: 'd1', at: '' })
-  expect(card).toEqual({ trigger_id: 'request-1', source: 'github', actor: 'alice', thread: 'github:42', human: true, at: '2026-09-09T00:00:00Z',
+  expect(card).toEqual({ trigger_id: 'request-1', source: 'github', actor: 'alice', thread: 'github:acme/widgets#42', human: true, at: '2026-09-09T00:00:00Z',
     preview: expect.stringMatching(/^Please inspect the failing check\. Additional context\./), chars: trigger.text.length, read: 'trigger/request-1',
     disposition: { decision_id: 'd1', delivered_to: ['ticket-1'] } })
   expect(card.preview).toHaveLength(160)
   const { policyVersion: _version, ...mandate } = ticket.mandate
-  const threads = [{ thread: 'github:42', bound: true as const }]
+  const threads = [{ thread: 'github:acme/widgets#42', bound: true as const }]
   const batch = [{ ...trigger, id: 'request-2', text: 'Also the flaky one.' }]
   expect(ticketDetails(ticket, threads, batch)).toEqual({ ticket_id: 'ticket-1', title: 'Inspect failing check',
     state: 'person/review', strength: 'explicit', pr_number: 42, read: 'ticket/ticket-1', trigger_id: 'request-1', decision_id: 'd1',
@@ -172,9 +172,9 @@ it('shows a ticket card\'s state from a closed set: the open ticket\'s stage, th
   expect(ticketCard({ ...ticket, attention: { id: 'q', question: 'Desktop too?' } })).toMatchObject({ attention: { question: 'Desktop too?' } })
 })
 it('shows a decision with snake_case keys and a reference to its details', () => {
-  const decision: Decision = { id: 'd1', evalId: 'e1', threadKey: 'github:42', triggerIds: ['request-1'], policyVersion: 'v1', at: 'a', kind: 'accept', reason: [said('r')],
+  const decision: Decision = { id: 'd1', evalId: 'e1', threadKey: 'github:acme/widgets#42', triggerIds: ['request-1'], policyVersion: 'v1', at: 'a', kind: 'accept', reason: [said('r')],
     strength: 'explicit', ticketId: 'ticket-1', audit: { matches: [] } }
-  expect(decisionCard(decision)).toEqual({ decision_id: 'd1', kind: 'accept', reason: 'r', strength: 'explicit', thread: 'github:42', trigger_ids: ['request-1'],
+  expect(decisionCard(decision)).toEqual({ decision_id: 'd1', kind: 'accept', reason: 'r', strength: 'explicit', thread: 'github:acme/widgets#42', trigger_ids: ['request-1'],
     ticket_id: 'ticket-1', at: 'a', read: 'decision/d1' })
   expect(decisionDetails(decision)).toMatchObject({ decision_id: 'd1', audit: { matches: [] } })
   // An Eval's id and a Policy version are hashes nothing reads by.
@@ -182,12 +182,12 @@ it('shows a decision with snake_case keys and a reference to its details', () =>
   expect(decisionDetails(decision)).not.toHaveProperty('policy_version')
 })
 it('summarizes threads with their subscriptions and assessment state', () => {
-  const evaluating = { id: 'e1', threadKey: 'github:42', triggerIds: ['x'], strength: 'inferred' as const, actor: trigger.actor, basis: { via: 'followup' as const }, policyVersion: 'v1',
+  const evaluating = { id: 'e1', threadKey: 'github:acme/widgets#42', triggerIds: ['x'], strength: 'inferred' as const, actor: trigger.actor, basis: { via: 'followup' as const }, policyVersion: 'v1',
     startedAt: 's', deadline: 'd' }
-  const thread: Thread = { key: 'github:42', ref: { source: 'github', id: '42' }, createdAt: '', subscriptions: ['ticket-1'], correlated: [], pending: ['x'], evaluating,
+  const thread: Thread = { key: 'github:acme/widgets#42', ref: { source: 'github', id: 'acme/widgets#42' }, createdAt: '', subscriptions: ['ticket-1'], correlated: [], pending: ['x'], evaluating,
     meta: { pollError: 'boom' } }
-  expect(threadCard(thread, 'Fix the margin')).toEqual({ thread: 'github:42', label: 'Fix the margin', source: 'github', tickets: ['ticket-1'],
-    evaluating: { since: 's', deadline: 'd' }, pending: 1, error: 'boom', read: 'thread/github:42' })
+  expect(threadCard(thread, 'Fix the margin')).toEqual({ thread: 'github:acme/widgets#42', label: 'Fix the margin', source: 'github', tickets: ['ticket-1'],
+    evaluating: { since: 's', deadline: 'd' }, pending: 1, error: 'boom', read: 'thread/github:acme/widgets#42' })
 })
 
 it('keeps what a model reads in a preview as written: code, angle brackets and link targets', () => {

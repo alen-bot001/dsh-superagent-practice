@@ -50,7 +50,7 @@ it('writes a schema 10 database in its current shape once, so nothing reads an o
   const ticket = {
     id: 't1', title: 'Fix', decisionId: 'd1', state: 'open', assignments: [], summary: '', createdAt: '1', updatedAt: '2',
     // In schema 10, a GitHub Channel without a comment link marked a PR that the ticket opened.
-    channels: [{ source: 'github', thread: 'github:8', address: { number: '8' } }, { source: 'github', thread: 'github:7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
+    channels: [{ source: 'github', thread: 'github:acme/widgets#8', address: { number: '8' } }, { source: 'github', thread: 'github:acme/widgets#7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
     mandate: mandate({ chatId: 'oc_team', direct: false, member: 'ou_alice', mention: true }),
     inputs: [{ id: 'i1', kind: 'reopen', decisionId: 'd2', at: '3' }, { id: 'i2', kind: 'reopen', decisionId: 'd0', at: '0' },
       { id: 'i3', kind: 'trigger', triggerId: 'trig-2', at: '4' }, { id: 'i4', kind: 'trigger', triggerId: 'ci-1', at: '5' }], undelivered: ['i1'],
@@ -67,12 +67,12 @@ it('writes a schema 10 database in its current shape once, so nothing reads an o
   const reopened = { id: 'd2', threadKey: 'feishu:oc_team:om_1', triggerIds: ['trig-2'], kind: 'reopen', reason: 'follow-up', at: '3', ticketId: 't1', policyVersion: 'v1' }
   const unavailable = { id: 'd3', threadKey: 'feishu:oc_team:om_1', triggerIds: ['trig-2'], kind: 'unavailable', reason: 'Assessment timed out', at: '5', policyVersion: 'v1' }
   const triggers = [{ id: 'trig-2', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_team:om_1' }], actor, human: true, at: '4', text: 'more', meta: {} },
-    { id: 'ci-1', source: 'github', threads: [{ source: 'github', id: '7' }], actor: { source: 'github', id: 'ci' }, human: false, at: '5', text: 'CI', meta: {} }]
+    { id: 'ci-1', source: 'github', threads: [{ source: 'github', id: 'acme/widgets#7' }], actor: { source: 'github', id: 'ci' }, human: false, at: '5', text: 'CI', meta: {} }]
   const decision = { id: 'd1', threadKey: 'feishu:oc_team:om_1', triggerIds: ['trig-1'], kind: 'accept', reason: '', at: '1', ticketId: 't1', policyVersion: 'v1',
     mandate: mandate({ legacyAuthority: 'proactive_rule', observation: true, rules: ['copy'] }) }
-  const evaluating = { id: 'e1', threadKey: 'github:5', triggerIds: ['x'], strength: 'inferred', actor, policyVersion: 'v1', startedAt: '', deadline: '',
+  const evaluating = { id: 'e1', threadKey: 'github:acme/widgets#5', triggerIds: ['x'], strength: 'inferred', actor, policyVersion: 'v1', startedAt: '', deadline: '',
     basis: { source: 'github', scope: { number: 5 }, row: 'issues', admission: 'listedUnaddressed', observation: true, mode: 'auto' } }
-  const thread = { key: 'github:5', ref: { source: 'github', id: '5' }, createdAt: '', subscriptions: [], correlated: [], pending: [], evaluating, meta: {} }
+  const thread = { key: 'github:acme/widgets#5', ref: { source: 'github', id: 'acme/widgets#5' }, createdAt: '', subscriptions: [], correlated: [], pending: [], evaluating, meta: {} }
   schema10(path, {
     settings: { policy: { rules: [{ id: 'copy', name: 'Copy', enabled: true, instruction: 'x', visual: true }] }, executor: { reviewer: 'bob', prepare: 'echo $DSH_TAG_DIR' },
       sources: { 'github-issue': { enabled: true, config: {} }, github: { enabled: true, config: { mergeCli: 'gh' } } } },
@@ -125,8 +125,8 @@ it('writes a schema 10 database in its current shape once, so nothing reads an o
     origin: { triggerId: 'trig-1', triggerIds: ['trig-1', 'trig-2'] },
     execution: { name: 'fix-1', directory: '/w/fix-1', assignment: 'Read trigger/trig-1.' },
     delivery: { error: 'offline', at: '2' },
-    follows: [{ thread: 'github:8', own: true, closed: { at: '2026-09-01T00:00:00Z', outcome: 'merged' } }, { thread: 'github:7', own: false }],
-    channels: [{ source: 'github', thread: 'github:7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
+    follows: [{ thread: 'github:acme/widgets#8', own: true, closed: { at: '2026-09-01T00:00:00Z', outcome: 'merged' } }, { thread: 'github:acme/widgets#7', own: false }],
+    channels: [{ source: 'github', thread: 'github:acme/widgets#7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
     answers: ['trig-3'],
     mandate: { basis: { via: 'listed', source: 'feishu', scope: { chatId: 'oc_team', direct: false }, sender: 'ou_alice', addressed: 'mention' } },
   })
@@ -149,7 +149,7 @@ it('writes a schema 10 database in its current shape once, so nothing reads an o
   expect(store.decisions.get('d2')).toEqual({ ...reopened, reason: [{ code: 'said', values: { text: 'follow-up' } }] })
   expect(store.decisions.get('d3')!.reason).toEqual([{ code: 'timeout' }])
   expect(store.decisions.get('d1')!.mandate!.basis).toEqual({ via: 'listed', rules: ['copy'], observation: {}, authority: 'proactive_rule' })
-  expect(store.threads.get('github:5')!.evaluating!.basis).toEqual({ via: 'admission', source: 'github', scope: { number: 5 }, row: 'issues',
+  expect(store.threads.get('github:acme/widgets#5')!.evaluating!.basis).toEqual({ via: 'admission', source: 'github', scope: { number: 5 }, row: 'issues',
     cell: 'listedUnaddressed', observation: { mode: 'auto' } })
   // kv: an Input is rendered from its ticket as it is read, so no body stays; records nothing reads go, and so do the
   // removed Issue Source's, which the migration converted.
@@ -371,7 +371,7 @@ it('writes the Sources\' records in their current shape once, so no Source conve
   const path = join(directory, 'db.sqlite')
   const recent = new Date(Date.now() - 3600_000).toISOString()
   const dm = { source: 'feishu', thread: 'feishu:oc_dm', address: { chatId: 'oc_dm', messageId: 'om_1' } }
-  const evaluating = { id: 'e1', threadKey: 'github:5', triggerIds: ['issue'], strength: 'inferred', actor, policyVersion: 'v1',
+  const evaluating = { id: 'e1', threadKey: 'github:acme/widgets#5', triggerIds: ['issue'], strength: 'inferred', actor, policyVersion: 'v1',
     startedAt: '',
     deadline: '', basis: { via: 'listed' } }
   schema10(path, {
@@ -386,11 +386,11 @@ it('writes the Sources\' records in their current shape once, so no Source conve
     trigger: [{ id: 'dm', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_dm:om_1' }], actor, human: true,
       at: '2026-09-01T00:00:00Z',
       text: 'fix', channel: dm, meta: {} },
-    { id: 'issue', source: 'github-issue', threads: [{ source: 'github', id: '12' }], actor: { source: 'github', id: 'alice' }, human: true,
+    { id: 'issue', source: 'github-issue', threads: [{ source: 'github', id: 'acme/widgets#12' }], actor: { source: 'github', id: 'alice' }, human: true,
       at: '2026-09-01T00:00:00Z', text: 'Login fails', meta: { number: 12 } }],
     thread: [{ key: 'feishu:oc_team:om_9', ref: { source: 'feishu', id: 'oc_team:om_9' }, createdAt: '', subscriptions: [], correlated: [],
       pending: [], meta: {} },
-    { key: 'github:5', ref: { source: 'github', id: '5' }, createdAt: '', subscriptions: [], correlated: [], pending: [], evaluating,
+    { key: 'github:acme/widgets#5', ref: { source: 'github', id: 'acme/widgets#5' }, createdAt: '', subscriptions: [], correlated: [], pending: [], evaluating,
       meta: {} }],
   })
   const db = new DatabaseSync(path)
@@ -410,8 +410,8 @@ it('writes the Sources\' records in their current shape once, so no Source conve
   expect(store.triggers.get('issue')!.source).toBe('github')
   // The waiting mention within the polling horizon is read again; the older one is no fresh request.
   expect(store.get(KV.github.retries)).toEqual({ 12: { since: recent, pr: false } })
-  expect(store.get(KV.github.cursor(7))).toBe('2026-09-03T00:00:00.000Z')
-  expect(store.get(KV.github.cursor(8))).toBe('2026-09-04T00:00:00.000Z')
+  // A per-thread cursor now names the repository it belongs to, which a store written before that change does not record;
+  // migration drops the superseded keys rather than guess one, so no cursor is written here.
   for (const name of ['github-issue-pending', 'github-issues-since', 'github-thread:7', 'thread-since:github:7', 'github-thread:8']) {
     expect(store.get(name)).toBeUndefined()
   }
@@ -457,14 +457,14 @@ function indexed(path: string, triggers: { id: string; at: string; threads: { so
 
 it('dates each Thread from its Triggers, and keeps every Trigger\'s time in the one form stored times take', () => {
   const path = join(directory, 'db.sqlite')
-  const comment = (id: string, at: string) => ({ id, source: 'github', threads: [{ source: 'github', id: '7' }], actor, human: true, at, text: id, meta: {} })
+  const comment = (id: string, at: string) => ({ id, source: 'github', threads: [{ source: 'github', id: 'acme/widgets#7' }], actor, human: true, at, text: id, meta: {} })
   // GitHub wrote its times in whole seconds; a Thread a schema 10 build saved before it knew of activity times has none.
   const triggers = [comment('first', '2026-10-01T00:00:00Z'), comment('last', '2026-10-09T00:00:00.000Z')]
   schema10(path, {}, { trigger: triggers,
-    thread: [{ key: 'github:7', ref: { source: 'github', id: '7' }, createdAt: '2026-10-05T00:00:00.000Z', subscriptions: [], correlated: [], pending: [], meta: {} }] })
+    thread: [{ key: 'github:acme/widgets#7', ref: { source: 'github', id: 'acme/widgets#7' }, createdAt: '2026-10-05T00:00:00.000Z', subscriptions: [], correlated: [], pending: [], meta: {} }] })
   indexed(path, triggers)
   const store = new Store(path)
-  expect(store.threads.get('github:7')).toMatchObject({ createdAt: '2026-10-01T00:00:00.000Z', lastAt: '2026-10-09T00:00:00.000Z' })
+  expect(store.threads.get('github:acme/widgets#7')).toMatchObject({ createdAt: '2026-10-01T00:00:00.000Z', lastAt: '2026-10-09T00:00:00.000Z' })
   expect(store.triggers.get('first')!.at).toBe('2026-10-01T00:00:00.000Z')
   expect(store.db.prepare("SELECT at FROM trigger WHERE id = 'first' UNION ALL SELECT at FROM trigger_thread WHERE id = 'first'").all())
     .toEqual([{ at: '2026-10-01T00:00:00.000Z' }, { at: '2026-10-01T00:00:00.000Z' }])
@@ -526,11 +526,11 @@ it('marks a ticket\'s Channel to a direct Feishu chat as direct, and links a Thr
 
 it('delivers the candidate of an Eval in progress at the upgrade again, so its deadline starts and it can expire', () => {
   const path = join(directory, 'db.sqlite')
-  const evaluating = { id: 'e9', threadKey: 'github:9', triggerIds: ['issue-9'], strength: 'explicit', actor, policyVersion: 'v1', startedAt: '1',
+  const evaluating = { id: 'e9', threadKey: 'github:acme/widgets#9', triggerIds: ['issue-9'], strength: 'explicit', actor, policyVersion: 'v1', startedAt: '1',
     deadline: '2', basis: { via: 'listed' } }
   schema10(path, {}, {
-    trigger: [{ id: 'issue-9', source: 'github', threads: [{ source: 'github', id: '9' }], actor, human: true, at: '2026-09-01T00:00:00Z', text: 'Fix it', meta: {} }],
-    thread: [{ key: 'github:9', ref: { source: 'github', id: '9' }, createdAt: '', subscriptions: [], correlated: [], pending: [], evaluating, meta: {} }],
+    trigger: [{ id: 'issue-9', source: 'github', threads: [{ source: 'github', id: 'acme/widgets#9' }], actor, human: true, at: '2026-09-01T00:00:00Z', text: 'Fix it', meta: {} }],
+    thread: [{ key: 'github:acme/widgets#9', ref: { source: 'github', id: 'acme/widgets#9' }, createdAt: '', subscriptions: [], correlated: [], pending: [], evaluating, meta: {} }],
   })
   const store = new Store(path)
   const effects = store.db.prepare("SELECT key, value FROM effect WHERE kind = 'assessment'").all().map(row => [row.key, JSON.parse(String(row.value))])

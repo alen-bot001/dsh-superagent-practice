@@ -26,14 +26,14 @@ it('refuses databases newer than this build and rolls back failed atomic work', 
 it('finds triggers by thread', () => {
   const store = new Store(join(directory, 'orchestrator.sqlite'))
   store.triggers.save({ id: 'a', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_1:om_%_x' }], actor: { source: 'feishu', id: 'u' }, human: true, at: '2', text: 'later', meta: {} })
-  store.triggers.save({ id: 'b', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_1:om_%_x' }, { source: 'github', id: '3' }], actor: { source: 'feishu', id: 'u' }, human: true, at: '1', text: 'earlier', meta: {} })
+  store.triggers.save({ id: 'b', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_1:om_%_x' }, { source: 'github', id: 'acme/widgets#3' }], actor: { source: 'feishu', id: 'u' }, human: true, at: '1', text: 'earlier', meta: {} })
   store.triggers.save({ id: 'c', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_1:om_y_x' }], actor: { source: 'feishu', id: 'u' }, human: true, at: '3', text: 'other', meta: {} })
   expect(store.read.threadTriggers('feishu:oc_1:om_%_x').map(trigger => trigger.id)).toEqual(['b', 'a'])
-  expect(store.read.threadTriggers('github:3').map(trigger => trigger.id)).toEqual(['b'])
+  expect(store.read.threadTriggers('github:acme/widgets#3').map(trigger => trigger.id)).toEqual(['b'])
   // Saving a Trigger again replaces the Threads it is found on.
-  store.triggers.save({ ...store.triggers.get('b')!, threads: [{ source: 'github', id: '3' }] })
+  store.triggers.save({ ...store.triggers.get('b')!, threads: [{ source: 'github', id: 'acme/widgets#3' }] })
   expect(store.read.threadTriggers('feishu:oc_1:om_%_x').map(trigger => trigger.id)).toEqual(['a'])
-  expect(store.read.threadTriggers('github:3').map(trigger => trigger.id)).toEqual(['b'])
+  expect(store.read.threadTriggers('github:acme/widgets#3').map(trigger => trigger.id)).toEqual(['b'])
   expect(store.read.subscribedThreads()).toEqual([])
   store.close()
 })
@@ -55,21 +55,21 @@ it('reads the working sets alone, in SQLite as in memory, and follows each save'
     repo.tickets.save(ticket('waking', 'ended', [{ state: 'ended' }], ['input']))
     repo.tickets.save(ticket('done', 'ended', [{ state: 'ended' }]))
     repo.threads.save(thread('1', 'github', { pending: ['a'] }))
-    repo.threads.save(thread('2', 'github', { subscriptions: ['running'], evaluating: { id: 'e', threadKey: 'github:2', triggerIds: ['b'], strength: 'explicit',
+    repo.threads.save(thread('2', 'github', { subscriptions: ['running'], evaluating: { id: 'e', threadKey: 'github:acme/widgets#2', triggerIds: ['b'], strength: 'explicit',
       actor: { source: 'github', id: 'alice' }, basis: { via: 'followup' }, policyVersion: '', startedAt: '', deadline: '' } }))
     repo.threads.save(thread('oc:om', 'feishu', { subscriptions: ['done'] }))
     repo.threads.save(thread('3', 'github'))
     expect(ids(repo.tickets.open())).toEqual(['queued', 'running'])
     expect(ids(repo.tickets.active())).toEqual(['queued', 'running', 'waking'])
-    expect(ids(repo.threads.active())).toEqual(['github:1', 'github:2'])
+    expect(ids(repo.threads.active())).toEqual(['github:acme/widgets#1', 'github:acme/widgets#2'])
     repo.tickets.save(ticket('running', 'ended', [{ state: 'ended' }]))
     repo.threads.save(thread('1', 'github'))
     expect(ids(repo.tickets.open())).toEqual(['queued'])
     expect(ids(repo.tickets.active())).toEqual(['queued', 'waking'])
-    expect(ids(repo.threads.active())).toEqual(['github:2'])
+    expect(ids(repo.threads.active())).toEqual(['github:acme/widgets#2'])
   }
-  expect(ids(store.read.subscribedThreads())).toEqual(['feishu:oc:om', 'github:2'])
-  expect(ids(store.read.subscribedThreads('github'))).toEqual(['github:2'])
+  expect(ids(store.read.subscribedThreads())).toEqual(['feishu:oc:om', 'github:acme/widgets#2'])
+  expect(ids(store.read.subscribedThreads('github'))).toEqual(['github:acme/widgets#2'])
   store.close()
 })
 it('adds the working sets to a database that predates them, from the rows it holds', () => {
@@ -79,20 +79,20 @@ it('adds the working sets to a database that predates them, from the rows it hol
     CREATE TABLE thread (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
   db.prepare('INSERT INTO kv VALUES (?,?)').run('schema', String(SCHEMA_VERSION))
   db.prepare('INSERT INTO ticket VALUES (?,?)').run('t', JSON.stringify(ticket('t', 'open', [{ state: 'running' }])))
-  db.prepare('INSERT INTO thread VALUES (?,?)').run('github:1', JSON.stringify(thread('1', 'github', { pending: ['a'], subscriptions: ['t'] })))
+  db.prepare('INSERT INTO thread VALUES (?,?)').run('github:acme/widgets#1', JSON.stringify(thread('1', 'github', { pending: ['a'], subscriptions: ['t'] })))
   db.close()
   const store = new Store(path)
   expect([ids(store.tickets.open()), ids(store.tickets.active())]).toEqual([['t'], ['t']])
-  expect([ids(store.threads.active()), ids(store.read.subscribedThreads('github'))]).toEqual([['github:1'], ['github:1']])
+  expect([ids(store.threads.active()), ids(store.read.subscribedThreads('github'))]).toEqual([['github:acme/widgets#1'], ['github:acme/widgets#1']])
   store.close()
 })
 it('names a thread by its first human trigger', () => {
   const store = new Store(join(directory, 'orchestrator.sqlite'))
-  const base = { source: 'github', threads: [{ source: 'github', id: '5' }], actor: { source: 'github', id: 'x' }, meta: {} }
+  const base = { source: 'github', threads: [{ source: 'github', id: 'acme/widgets#5' }], actor: { source: 'github', id: 'x' }, meta: {} }
   store.triggers.save({ ...base, id: 'ci', human: false, at: '1', text: 'GitHub PR #5 CI: {}' })
   store.triggers.save({ ...base, id: 'person', human: true, at: '2', text: 'please look' })
-  expect(store.read.firstTrigger('github:5')?.id).toBe('ci')
-  expect(store.read.firstTrigger('github:5', true)?.id).toBe('person')
+  expect(store.read.firstTrigger('github:acme/widgets#5')?.id).toBe('ci')
+  expect(store.read.firstTrigger('github:acme/widgets#5', true)?.id).toBe('person')
   store.close()
 })
 
@@ -113,21 +113,21 @@ it('counts triggers per Source and lists them newest first, optionally only the 
 it('links a Thread to the page its Source named, or else to the message that started it', () => {
   const store = new Store(join(directory, 'links.sqlite'))
   const thread = (keyValue: string, source: string, id: string, meta: Record<string, unknown> = {}) => store.threads.save({ key: keyValue, ref: { source, id }, createdAt: '', subscriptions: [], correlated: [], pending: [], meta })
-  thread('github:7', 'github', '7', { url: 'https://github.com/acme/widgets/pull/7' })
+  thread('github:acme/widgets#7', 'github', '7', { url: 'https://github.com/acme/widgets/pull/7' })
   thread('feishu:oc_1:om_1', 'feishu', 'oc_1:om_1')
   store.triggers.save({ id: 'f1', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_1:om_1' }], actor: { source: 'feishu', id: 'ou_a' }, human: true, at: '1', text: 'hi', url: 'https://applink.feishu.cn/client/message/link/open?token=t', meta: {} })
-  expect(threadFacts(store, store.threads.get('github:7')!).url).toBe('https://github.com/acme/widgets/pull/7')
+  expect(threadFacts(store, store.threads.get('github:acme/widgets#7')!).url).toBe('https://github.com/acme/widgets/pull/7')
   expect(threadFacts(store, store.threads.get('feishu:oc_1:om_1')!).url).toBe('https://applink.feishu.cn/client/message/link/open?token=t')
   store.close()
 })
 
 it('sets and removes a Source\'s keys in a Thread\'s meta', () => {
   const store = new Store(join(directory, 'orchestrator.sqlite'))
-  store.threads.save({ key: 'github:5', ref: { source: 'github', id: '5' }, createdAt: '', subscriptions: [], correlated: [], pending: [], meta: { isPr: true, gone: true } })
-  store.threads.patchMeta('github:5', { gone: undefined, title: 'Fix' })
-  expect(store.threads.get('github:5')!.meta).toEqual({ isPr: true, title: 'Fix' })
-  store.threads.patchMeta('github:6', { title: 'none' })
-  expect(store.threads.get('github:6')).toBeUndefined()
+  store.threads.save({ key: 'github:acme/widgets#5', ref: { source: 'github', id: 'acme/widgets#5' }, createdAt: '', subscriptions: [], correlated: [], pending: [], meta: { isPr: true, gone: true } })
+  store.threads.patchMeta('github:acme/widgets#5', { gone: undefined, title: 'Fix' })
+  expect(store.threads.get('github:acme/widgets#5')!.meta).toEqual({ isPr: true, title: 'Fix' })
+  store.threads.patchMeta('github:acme/widgets#6', { title: 'none' })
+  expect(store.threads.get('github:acme/widgets#6')).toBeUndefined()
   store.close()
 })
 it('spells every kv key in KV alone, so each record is named by its entry there', () => {
@@ -220,7 +220,7 @@ it('replaces a working-set column an earlier build defined otherwise, and drops 
 it('lists in the same order in SQLite and in memory, and undoes a failed nested transaction alone in both', () => {
   const store = new Store(join(directory, 'orchestrator.sqlite'))
   const order = (items: { id?: string; key?: string }[]) => items.map(item => item.id ?? item.key)
-  const decision = (id: string): Decision => ({ id, evalId: '', threadKey: 'github:1', triggerIds: [], policyVersion: '', at: id, kind: 'ignore', reason: [],
+  const decision = (id: string): Decision => ({ id, evalId: '', threadKey: 'github:acme/widgets#1', triggerIds: [], policyVersion: '', at: id, kind: 'ignore', reason: [],
     strength: 'explicit' })
   const run = (repo: Repositories) => {
     repo.tickets.save(ticket('first', 'open', [{ state: 'running' }]))
@@ -237,11 +237,11 @@ it('lists in the same order in SQLite and in memory, and undoes a failed nested 
       expect(() => repo.atomic(() => { repo.tickets.save(ticket('inner', 'open', [])); throw new Error('boom') })).toThrow('boom')
     })
     return { tickets: order(repo.tickets.list()), open: order(repo.tickets.open()), active: order(repo.tickets.active()), threads: order(repo.threads.list()),
-      activeThreads: order(repo.threads.active()), decisions: order(repo.decisions.byThread('github:1')) }
+      activeThreads: order(repo.threads.active()), decisions: order(repo.decisions.byThread('github:acme/widgets#1')) }
   }
   const memory = run(new MemoryRepositories())
   expect(memory).toEqual({ tickets: ['outer', 'third', 'second', 'first'], open: ['outer', 'third', 'first'], active: ['third', 'first'],
-    threads: ['github:1', 'github:2', 'github:3'], activeThreads: ['github:1', 'github:3'], decisions: ['d2', 'd1'] })
+    threads: ['github:acme/widgets#1', 'github:acme/widgets#2', 'github:acme/widgets#3'], activeThreads: ['github:acme/widgets#1', 'github:acme/widgets#3'], decisions: ['d2', 'd1'] })
   expect(run(store)).toEqual(memory)
   store.close()
 })

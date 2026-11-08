@@ -393,7 +393,7 @@ it('shows a candidate with its thread\'s tickets open first, the tickets it reac
   expect(followup).toMatchObject({ tickets_total: 2, delivered_to: [a.id], thread: `feishu:${CHAT}:om_1` })
   expect(String(followup.next_action).length).toBeLessThanOrEqual(100)
   // A message elsewhere that names a pull request reads the tickets that follow it.
-  const thread = { key: 'github:123', ref: { source: 'github', id: '123' }, createdAt: '', subscriptions: [a.id], correlated: [], pending: [], meta: {} }
+  const thread = { key: 'github:acme/widgets#123', ref: { source: 'github', id: 'acme/widgets#123' }, createdAt: '', subscriptions: [a.id], correlated: [], pending: [], meta: {} }
   h.runtime.store.threads.save(thread)
   h.runtime.receive(feishu('4', '@bot 看看 #123 的进展')); await h.runtime.idle()
   expect(relaysOf('candidate').at(-1)).toMatchObject({ related_tickets: [], tickets_total: 0, referenced_tickets: [{ ticket_id: a.id }] })
@@ -464,10 +464,10 @@ it('shows an Executor Session no id it cannot read: no Decision, no other ticket
 
 it('marks the threads a worker follows for context apart from those a Source bound its ticket to', async () => {
   const { ticket, sessionId } = await h.acceptedTicket(feishu('1', '@bot 修一下回归'))
-  h.runtime.engine.bindThread(ticket.id, { source: 'github', id: '12' }, true)
-  await h.runTool(sessionId, 'orchestrator_thread_follow', { thread: 'github:9', reason: 'The Issue it fixes.' })
+  h.runtime.engine.bindThread(ticket.id, { source: 'github', id: 'acme/widgets#12' }, true)
+  await h.runTool(sessionId, 'orchestrator_thread_follow', { thread: 'github:acme/widgets#9', reason: 'The Issue it fixes.' })
   const { threads } = await read(`ticket/${ticket.id}`) as { threads: { thread: string }[] }
-  expect(threads).toEqual(expect.arrayContaining([{ thread: `feishu:${CHAT}:om_1` }, { thread: 'github:12', bound: true }, { thread: 'github:9', context: true }]))
+  expect(threads).toEqual(expect.arrayContaining([{ thread: `feishu:${CHAT}:om_1` }, { thread: 'github:acme/widgets#12', bound: true }, { thread: 'github:acme/widgets#9', context: true }]))
   expect(threads).toHaveLength(3)
 })
 

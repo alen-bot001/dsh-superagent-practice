@@ -39,14 +39,14 @@ it('names the Thread of each dropped message: the one of the Trigger its Channel
   // A Feishu Channel names its chat; the message it answers belongs to the Thread of the topic's root message.
   store.triggers.save({ id: feishuTriggerId('om_reply'), source: 'feishu', threads: [{ source: 'feishu', id: 'oc_1:om_root' }],
     actor: { source: 'feishu', id: 'ou_a' }, human: true, at: new Date().toISOString(), text: 'please', meta: {} })
-  store.threads.save({ key: 'github:42', ref: { source: 'github', id: '42' }, createdAt: '', subscriptions: [], correlated: [], pending: [],
+  store.threads.save({ key: 'github:acme/widgets#42', ref: { source: 'github', id: 'acme/widgets#42' }, createdAt: '', subscriptions: [], correlated: [], pending: [],
     meta: {} })
   drop('a', feishuChannel('oc_1', 'om_reply'))
-  drop('b', githubChannel(42))
+  drop('b', githubChannel('acme/widgets', 42))
   // A message whose Trigger and Thread the store no longer has links nowhere.
   drop('c', feishuChannel('oc_2', 'om_gone'))
   expect(Object.fromEntries(droppedReplies({ store, links }).map(item => [item.id, item.thread])))
-    .toEqual({ a: 'feishu:oc_1:om_root', b: 'github:42', c: undefined })
+    .toEqual({ a: 'feishu:oc_1:om_root', b: 'github:acme/widgets#42', c: undefined })
 })
 
 function views() {
@@ -157,18 +157,18 @@ const problems = (host: ReturnType<typeof views>, health: Parameters<typeof over
 
 it('lists an Eval past its deadline, and as dsh-superagent\'s own errors only parts no Source or Policy sync reports', () => {
   const host = views()
-  const evaluating = { id: 'e1', threadKey: 'github:1', triggerIds: ['t1'], strength: 'explicit' as const, actor: { source: 'github',
+  const evaluating = { id: 'e1', threadKey: 'github:acme/widgets#1', triggerIds: ['t1'], strength: 'explicit' as const, actor: { source: 'github',
     id: 'alice' },
     basis: { via: 'addressed' as const, addressed: 'mention' as const }, policyVersion: 'v1', startedAt: '2026-01-01T00:00:00Z',
     deadline: '2026-01-01T00:02:00Z' }
-  store.threads.save({ key: 'github:1', ref: { source: 'github', id: '1' }, createdAt: at, subscriptions: [], correlated: [], pending: [],
+  store.threads.save({ key: 'github:acme/widgets#1', ref: { source: 'github', id: 'acme/widgets#1' }, createdAt: at, subscriptions: [], correlated: [], pending: [],
     evaluating, meta: {} })
   const error = (detail: string) => ({ state: 'error' as const, detail })
   const health = { relay: error('relay failing'), reply: error('reply failing'), feishu: error('socket closed'),
     history: error('read failed'),
     'sync:feishu': error('sync failed'), evals: error('unavailable'), launch: { state: 'ready' as const, detail: '' } }
   const found = problems(host, health)
-  expect(found).toContainEqual({ kind: 'eval-overdue', thread: expect.objectContaining({ key: 'github:1', stage: 'evaluating' }) })
+  expect(found).toContainEqual({ kind: 'eval-overdue', thread: expect.objectContaining({ key: 'github:acme/widgets#1', stage: 'evaluating' }) })
   // Effects are dsh-superagent's own; a Source shows its parts and its Policy sync, and the Evals are listed one by one.
   expect(found.filter(item => item.kind === 'runtime-error')).toEqual([{ kind: 'runtime-error', name: 'relay', detail: 'relay failing' },
     { kind: 'runtime-error', name: 'reply', detail: 'reply failing' }])
@@ -245,16 +245,16 @@ it('shows a follow-up that reached a ticket as delivered, the tickets that hande
   // A Trigger handed back goes to Eval as any message on its Thread; the Ticket that handed it back is named by its title once it has one.
   expect(triggerView(view, store.triggers.get('f2')!).disposition).toMatchObject({ delivered: false,
     handbacks: [{ ticketId: 't1', title: 't1', reason: 'Asks for a new feature' }] })
-  store.threads.save({ key: 'github:7', ref: { source: 'github', id: '7' }, createdAt: at, subscriptions: ['t1'], context: ['t1'],
+  store.threads.save({ key: 'github:acme/widgets#7', ref: { source: 'github', id: 'acme/widgets#7' }, createdAt: at, subscriptions: ['t1'], context: ['t1'],
     correlated: [], pending: [], meta: {} })
-  expect(threadDetail(host, 'github:7', undefined, 50)?.context).toEqual(['t1'])
+  expect(threadDetail(host, 'github:acme/widgets#7', undefined, 50)?.context).toEqual(['t1'])
   store.tickets.save({ id: 't1', title: 'Fix', decisionId: 'd', channels: [], undelivered: [], createdAt: at, updatedAt: at,
     mandate: { strength: 'explicit', policyVersion: 'v', basis: { via: 'listed' }, actor: { source: 'feishu', id: 'ou_alice' }, scope: '' },
     origin: { triggerId: 'e1', triggerIds: ['e1'] }, assignments: [],
     inputs: [{ id: 'i1', kind: 'trigger', triggerId: 'f1', at }, { id: 'i2', kind: 'trigger', triggerId: 'f2', at }] })
   const page = ticketDetail(host, 't1')!
   expect(Object.fromEntries(page.threads.map(thread => [thread.key, !!thread.context]))).toEqual({ 'feishu:oc_1:om_root': false,
-    'github:7': true })
+    'github:acme/widgets#7': true })
   expect(page.inputs.map(input => input.kind === 'trigger' && input.trigger?.handback)).toEqual([{ reason: 'Asks for a new feature', at },
     undefined])
   expect(triggerView(snapshot(host), store.triggers.get('f2')!).disposition.handbacks[0]?.title).toBe('Fix')

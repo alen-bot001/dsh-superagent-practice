@@ -25,7 +25,7 @@ const { sources, policy } = setup()
 const thread = (subscriptions: string[] = []): Thread => ({ key: 'feishu:x', ref: { source: 'feishu', id: 'x' }, createdAt: '', subscriptions, correlated: [], pending: [], meta: {} })
 const feishu = (overrides: Partial<Trigger> & { meta?: Record<string, unknown> } = {}): Trigger => ({ id: 't', source: 'feishu', threads: [{ source: 'feishu', id: 'x' }], actor: { source: 'feishu', id: MEMBER }, human: true, at: '', text: 'hi', addressed: 'mention', meta: { chatId: CHAT, direct: false, mentioned: true }, ...overrides })
 const unaddressed = (overrides: Partial<Trigger> = {}): Trigger => { const { addressed: _addressed, ...rest } = feishu(overrides); return rest }
-const github = (login: string, addressed?: 'mention'): Trigger => ({ id: 'g', source: 'github', threads: [{ source: 'github', id: '1' }], actor: { source: 'github', id: login }, human: true, at: '', text: 'x', ...addressed ? { addressed } : {}, meta: { number: 1, isPr: true } })
+const github = (login: string, addressed?: 'mention'): Trigger => ({ id: 'g', source: 'github', threads: [{ source: 'github', id: 'acme/widgets#1' }], actor: { source: 'github', id: login }, human: true, at: '', text: 'x', ...addressed ? { addressed } : {}, meta: { repository: 'acme/widgets', number: 1, isPr: true } })
 const ticket = { id: 'ticket', ended: { at: '', by: 'executor', reason: 'closed', outcome: 'closed' } } as Ticket
 
 describe('source scope', () => {
@@ -412,9 +412,9 @@ describe('bots and events without a sender', () => {
     mode: 'auto' | 'off' = 'auto') => SettingsSchema.parse({
     policy: { sources: { github: { allowed: [{ id: 'Alice' }], bots: [{ id: 'dependabot[bot]' }], ...part } } }, eval: { mode },
     sources: { github: { enabled: true, config } } })
-  const comment: Trigger = { id: 'b', source: 'github', threads: [{ source: 'github', id: '1' }],
+  const comment: Trigger = { id: 'b', source: 'github', threads: [{ source: 'github', id: 'acme/widgets#1' }],
     actor: { source: 'github', id: 'dependabot[bot]' }, human: false, at: '', text: 'Bump lodash',
-    meta: { number: 1, isPr: true, kind: 'conversation' } }
+    meta: { repository: 'acme/widgets', number: 1, isPr: true, kind: 'conversation' } }
   const ci = (meta: Record<string, unknown>): Trigger => ({ id: 'ci', source: 'github', threads: [{ source: 'github', id: 'ci:main' }],
     actor: { source: 'github', id: '' }, human: false, at: '', text: 'CI failed 1/9 on main', meta: { ci: true, ...meta } })
   it('admits a bot on its Source\'s list as an inferred candidate where the Source observes its scope, and no other bot', () => {
@@ -447,7 +447,7 @@ describe('bots and events without a sender', () => {
     // The cell defaults to ignore, so observing the CI changes nothing until the table says so.
     expect(setup(observing({ observeCi: true })).policy.gate(ci({ branch: 'main' }), thread(), [])).toEqual({ admissible: false,
       reason: 'admission_ignored' })
-    const pull = setup(observing({ observeCi: true }, { admission })).policy.gate(ci({ number: 9, isPr: true }), thread(), [])
+    const pull = setup(observing({ observeCi: true }, { admission })).policy.gate(ci({ repository: 'acme/widgets', number: 9, isPr: true }), thread(), [])
     expect(pull).toEqual({ admissible: false, reason: 'not_human' })
   })
   it('admits a Feishu bot on its list in a chat the Source observes', () => {

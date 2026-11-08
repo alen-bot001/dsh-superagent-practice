@@ -356,7 +356,7 @@ describe('a worker whose work runs in the background', () => {
     await handsOff({ state: 'failed', summary: 'The build broke.' })
   })
   it('frees the slot of a worker that reports ready on a ticket that follows its pull request', async () => {
-    await handsOff({ state: 'ready', summary: 'PR ready' }, ticketId => { h.runtime.engine.bindThread(ticketId, { source: 'github', id: '7' }, true) })
+    await handsOff({ state: 'ready', summary: 'PR ready' }, ticketId => { h.runtime.engine.bindThread(ticketId, { source: 'github', id: 'acme/widgets#7' }, true) })
   })
   it('frees the slot of a worker that asks a person a question with a progress report', async () => {
     await handsOff({ state: 'progress', summary: 'The server runs.', human_action: 'Does the button look right?' })
@@ -379,7 +379,7 @@ describe('a worker whose work runs in the background', () => {
     expect(agent.status).toBe('running')
   })
   it('leaves the jobs a worker left to a person out of a later turn\'s background work, and does not kill them at the limit', async () => {
-    const one = await handsOff({ state: 'ready', summary: 'PR ready' }, ticketId => { h.runtime.engine.bindThread(ticketId, { source: 'github', id: '7' }, true) })
+    const one = await handsOff({ state: 'ready', summary: 'PR ready' }, ticketId => { h.runtime.engine.bindThread(ticketId, { source: 'github', id: 'acme/widgets#7' }, true) })
     const ticket = () => h.runtime.store.tickets.get(one.ticket.id)!
     // A second server, left too; then a note from the orchestrator wakes the worker, whose turn ends without a report.
     const server = h.jobs.run(one.sessionId, 'pnpm preview')
@@ -396,7 +396,7 @@ describe('a worker whose work runs in the background', () => {
   })
   it('records each end of a worker\'s turn on its Assignment, also after its ready report', async () => {
     const one = await h.acceptedTicket(feishu('1', '@bot 修一'))
-    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: '7' }, true)
+    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: 'acme/widgets#7' }, true)
     await h.runTool(one.sessionId, 'orchestrator_report', { state: 'ready', summary: 'PR ready' }); await h.runtime.idle()
     const report = latestAssignment(h.runtime.store.tickets.get(one.ticket.id)!)!.report!
     await new Promise(resolve => setTimeout(resolve, 5))
@@ -414,7 +414,7 @@ describe('a worker whose work runs in the background', () => {
   it('keeps a ticket open at a merge while its worker does in the background a message it acknowledged', async () => {
     const one = await h.acceptedTicket(feishu('1', '@bot 修一'))
     const ticket = () => h.runtime.store.tickets.get(one.ticket.id)!
-    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: '7' }, true)
+    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: 'acme/widgets#7' }, true)
     await h.runTool(one.sessionId, 'orchestrator_report', { state: 'ready', summary: 'PR ready' }); await h.runtime.idle()
     idle(one.sessionId); await h.runtime.idle()
     // A person asks for more; the worker acknowledges it, starts the work in the background and its turn ends.
@@ -425,7 +425,7 @@ describe('a worker whose work runs in the background', () => {
     await h.runTool(one.sessionId, 'orchestrator_ack', { trigger_id: more.id, text: '收到' })
     h.jobs.run(one.sessionId)
     idle(one.sessionId); await h.runtime.idle()
-    h.runtime.engine.threadClosed({ source: 'github', id: '7' }, 'merged', new Date().toISOString())
+    h.runtime.engine.threadClosed({ source: 'github', id: 'acme/widgets#7' }, 'merged', new Date().toISOString())
     expect(ticket().ended).toBeUndefined()
     expect(h.jobs.service.kill).not.toHaveBeenCalled()
   })
@@ -433,7 +433,7 @@ describe('a worker whose work runs in the background', () => {
     const one = await h.acceptedTicket(feishu('1', '@bot 修一'))
     const ticket = () => h.runtime.store.tickets.get(one.ticket.id)!
     // The ticket follows its pull request, so a ready report leaves it open.
-    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: '7' }, true)
+    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: 'acme/widgets#7' }, true)
     await h.runTool(one.sessionId, 'orchestrator_report', { state: 'ready', summary: 'PR ready' })
     idle(one.sessionId); await h.runtime.idle()
     expect(h.runtime.executor.activeCount()).toBe(0)
@@ -505,7 +505,7 @@ describe('a worker whose work runs in the background', () => {
   it('holds a delivery that reached a worker while a hand-off stopped its subagents until the stop ended', async () => {
     const one = await h.acceptedTicket(feishu('1', '@bot 修一'))
     const agent = h.agents.get(one.sessionId)!
-    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: '7' }, true)
+    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: 'acme/widgets#7' }, true)
     h.subagents.spawn(one.sessionId)
     await h.runTool(one.sessionId, 'orchestrator_report', { state: 'ready', summary: 'PR ready' }); await h.runtime.idle()
     // A person's message is on its way into the worker's Session, held there, as the worker hands off; the release is slow.
@@ -747,7 +747,7 @@ describe('what a worker read', () => {
   it('sends to Eval at a merge a message that reached the worker after its last step, which no step took before its turn ended', async () => {
     const one = await h.acceptedTicket(feishu('1', '@bot 修一'))
     const ticket = () => h.runtime.store.tickets.get(one.ticket.id)!
-    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: '7' }, true)
+    h.runtime.engine.bindThread(one.ticket.id, { source: 'github', id: 'acme/widgets#7' }, true)
     await h.runTool(one.sessionId, 'orchestrator_report', { state: 'ready', summary: 'PR ready' }); await h.runtime.idle()
     // A person's thanks reaches the worker after the step of its report, and its turn ends with no step taking it.
     await later()
@@ -756,7 +756,7 @@ describe('what a worker read', () => {
     idle(one.sessionId)
     await vi.waitFor(() => expect(latestAssignment(ticket())?.report?.state).toBe('waiting'))
     await later()
-    h.runtime.engine.threadClosed({ source: 'github', id: '7' }, 'merged', new Date().toISOString())
+    h.runtime.engine.threadClosed({ source: 'github', id: 'acme/widgets#7' }, 'merged', new Date().toISOString())
     await h.runtime.pump(); await h.runtime.idle()
     expect(ticket().ended).toMatchObject({ outcome: 'merged' })
     expect(h.candidates()).toContain(thanks.id)

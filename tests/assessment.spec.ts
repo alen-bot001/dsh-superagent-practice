@@ -75,7 +75,7 @@ it('keeps nothing for an Eval once it is decided, as for one that timed out', as
   }
   s.engine.receive(issue(9)); s.engine.evaluateDue()
   await s.assessor.context('issue-9', signal)
-  const thread = s.repo.threads.get('github:9')!
+  const thread = s.repo.threads.get('github:acme/widgets#9')!
   s.repo.threads.save({ ...thread, expired: 2, evaluating: { ...thread.evaluating!, delivered: '2000-01-01T00:00:00.000Z', deadline: '2000-01-01T00:00:00.000Z' } })
   s.engine.evaluateDue()
   expect(s.size()).toBe(0)
