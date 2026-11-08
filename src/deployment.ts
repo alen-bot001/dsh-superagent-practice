@@ -7,6 +7,7 @@ import s from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra/environment.ts'
+import { sameName } from './infra/text.ts'
 import { SetupError } from './setup.ts'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
@@ -42,19 +43,41 @@ export function machineOf(config: DeploymentConfig): Machine {
   return { stateDir, promptMaxChars, admissionContextMaxPages, admissionContextTimeoutMs }
 }
 
+const RepositoryName = z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'owner/name')
+/** Repositories one Source may watch; each adds polling calls to every round. */
+export const MAX_REPOSITORIES = 20
 export const GithubAccountsSchema = z.object({
+  /** The watched repositories, one `owner/name` per row as the panel's row editor stores them. */
+  repositories: z.array(z.object({ name: RepositoryName }).strict()).max(MAX_REPOSITORIES).default([]),
+  /** Deprecated: the single repository of a configuration written before a Source could watch several. */
   repository: z.string().trim().regex(/^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?$/, 'owner/name').default(''),
   cli: z.string().trim().default(''),
 })
+/**
+ * The watched repositories of `accounts` as `owner/name`, deduplicated and in configured order.
+ * A configuration from an older version names one repository in `repository`, which also accepts a comma- or
+ * whitespace-separated list so that a hand-written configuration keeps working.
+ */
+export function watchedRepositories(accounts: { repositories: { name: string }[]; repository: string }): string[] {
+  const legacy = accounts.repository.split(/[\s,]+/).filter(Boolean)
+  const named = accounts.repositories.length ? accounts.repositories.map(row => row.name) : legacy
+  return [...new Map(named.map(name => [name.toLowerCase(), name])).values()]
+}
 export const FeishuBotSchema = z.object({ cli: z.string().trim().default('') })
 /** Source configuration keys that affect deployment setup and trigger a restart when changed. */
 export const SETUP_FIELDS: Readonly<Record<string, readonly string[]>> = { github: Object.keys(GithubAccountsSchema.shape), feishu: Object.keys(FeishuBotSchema.shape) }
 
 export interface Deployment extends Machine {
-  repository: string
+  /** The watched repositories, as canonical `owner/name` reported by GitHub, in configured order. */
+  repositories: string[]
   github: { cli: string; login: string; noreply: string }
   feishu?: FeishuBot
 }
+/**
+ * The repository an operation falls back to when it names none of its own, such as a reply queued before the Source
+ * could watch several repositories. Operations that can name their repository must do so.
+ */
+export const primaryRepository = (deployment: Pick<Deployment, 'repositories'>): string => deployment.repositories[0] ?? ''
 export interface FeishuBot { cli: string; appId: string; brand: 'feishu' | 'lark'; botId: string; name: string }
 
 /** Resolve a command name or absolute path to an executable file, ignoring the worker shim directory. */
@@ -87,22 +110,28 @@ function parsed<T>(schema: z.ZodType<T>, text: string): T | undefined {
 export async function resolveDeployment(machine: Machine, github: unknown, probe: Probe, path = process.env.PATH ?? ''): Promise<Deployment> {
   const { stateDir } = machine
   const accounts = GithubAccountsSchema.parse(github ?? {})
-  const remote = accounts.repository
-  if (!remote) throw new SetupError('repositoryUnset')
+  const remotes = watchedRepositories(accounts)
+  if (!remotes.length) throw new SetupError('repositoryUnset')
   if (!accounts.cli) throw new SetupError('agentCliUnset')
   let cli: string
   try { cli = executable(accounts.cli, path, workerBin(stateDir)) } catch (error) { throw new SetupError('agentCliMissing', { output: reason(error) }) }
   const text = await probe([cli, 'api', 'user']).catch((error: unknown) => { throw new SetupError('agentCliSignedOut', { output: reason(error) }) })
   const agent = parsed(GithubUser, text)
   if (!agent) throw new SetupError('agentCliNoAccount')
-  // Use the canonical repository name returned by GitHub so renamed repositories match incoming notifications.
-  const access = parsed(RepositoryAccess, await probe([cli, 'api', `repos/${remote}`, '--jq', '{name: .full_name, push: .permissions.push}']).catch((error: unknown) => {
-    throw new SetupError('repositoryUnreadable', { account: agent.login, repository: remote, output: reason(error) })
-  }))
-  if (!access) throw new SetupError('repositoryUnreported', { repository: remote })
-  const repository = access.name
-  if (access.push !== true) throw new SetupError('repositoryReadOnly', { account: agent.login, repository })
-  return { ...machine, repository, github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
+  // Use the canonical repository names returned by GitHub so renamed repositories match incoming notifications.
+  // Every repository must be pushable: a Source that silently watched fewer repositories than it was told to would be
+  // harder to notice than one that refuses to start.
+  const repositories: string[] = []
+  for (const remote of remotes) {
+    const access = parsed(RepositoryAccess, await probe([cli, 'api', `repos/${remote}`, '--jq', '{name: .full_name, push: .permissions.push}']).catch((error: unknown) => {
+      throw new SetupError('repositoryUnreadable', { account: agent.login, repository: remote, output: reason(error) })
+    }))
+    if (!access) throw new SetupError('repositoryUnreported', { repository: remote })
+    const repository = access.name
+    if (access.push !== true) throw new SetupError('repositoryReadOnly', { account: agent.login, repository })
+    if (!repositories.some(name => sameName(name, repository))) repositories.push(repository)
+  }
+  return { ...machine, repositories, github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
 }
 
 const AuthStatus = z.object({ appId: z.string().regex(/^cli_[A-Za-z0-9]+$/), brand: z.enum(['feishu', 'lark']).default('feishu'), identities: z.object({ bot: z.object({ status: z.string() }) }) })

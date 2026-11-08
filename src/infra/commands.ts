@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { basename } from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
-import type { Deployment } from '../deployment.ts'
+import { primaryRepository, type Deployment } from '../deployment.ts'
 
 const exec = promisify(execFile)
 const TIMEOUT_MS = 90_000
@@ -54,17 +54,32 @@ function membership(error: unknown): unknown {
 }
 /**
  * Executes gh, lark-cli, and git subprocesses with deployment account credentials, timeouts, and abort signals.
- * Restricts GitHub API calls to the configured repository and translates CLI failures into CliError instances for Sources, MasterAssessor, Outbox, and Settings.
+ * Restricts GitHub API calls to one of the configured repositories and translates CLI failures into CliError instances for Sources, MasterAssessor, Outbox, and Settings.
  */
 export class Commands {
   /**
    * @param resolved - returns the resolved deployment setup, or throws while setup is still pending.
    * @param environment - variables overriding `process.env` for every command (such as isolated git settings).
    */
-  constructor(private readonly resolved: () => Deployment, private readonly environment: Record<string, string | undefined>, private readonly signal: AbortSignal) {}
+  constructor(private readonly resolved: () => Deployment, private readonly environment: Record<string, string | undefined>, private readonly signal: AbortSignal,
+    private readonly written?: string) {}
   get deployment(): Deployment { return this.resolved() }
-  get repository(): string { return this.deployment.repository }
-  withSignal(signal?: AbortSignal): Commands { return signal ? new Commands(this.resolved, this.environment, AbortSignal.any([this.signal, signal])) : this }
+  /** The watched repositories of this deployment. */
+  get repositories(): string[] { return this.deployment.repositories }
+  /** The repository this wrapper addresses: the one it was narrowed to, or the deployment's first. */
+  get repository(): string { return this.written ?? primaryRepository(this.deployment) }
+  /**
+   * Narrows this wrapper to one repository so every GitHub path it builds addresses that repository.
+   * A Source that watches several repositories must name one on each read; the fallback exists for a call with no
+   * repository of its own, such as a reply queued before the deployment watched several.
+   */
+  for(repository: string): Commands {
+    return repository === this.written ? this
+      : new Commands(this.resolved, this.environment, this.signal, repository)
+  }
+  withSignal(signal?: AbortSignal): Commands {
+    return signal ? new Commands(this.resolved, this.environment, AbortSignal.any([this.signal, signal]), this.written) : this
+  }
   async run(program: string, args: string[], cwd?: string): Promise<string> {
     try {
       const { stdout } = await exec(program, args, { cwd, signal: this.signal, timeout: TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024,
