@@ -42,8 +42,11 @@ const ticket = (id: string, state: 'open' | 'ended', assignments: Pick<Assignmen
   channels: [], assignments: assignments.map((item, index) => ({ id: `${id}-${index}`, createdAt: '', ...item })), inputs: [],
   ...state === 'ended' ? { ended: { at: '', by: 'executor' as const, reason: 'closed', outcome: 'closed' as const } } : {},
   undelivered, createdAt: '', updatedAt: '', origin: { triggerId: '', triggerIds: [] } })
-const thread = (id: string, source: string, fields: Partial<Thread> = {}): Thread =>
-  ({ key: `${source}:${id}`, ref: { source, id }, createdAt: '', subscriptions: [], correlated: [], pending: [], meta: {}, ...fields })
+// A GitHub Thread names its repository in its ID; Feishu Threads name a chat and a message.
+const thread = (id: string, source: string, fields: Partial<Thread> = {}): Thread => {
+  const named = source === 'github' ? `acme/widgets#${id}` : id
+  return { key: `${source}:${named}`, ref: { source, id: named }, createdAt: '', subscriptions: [], correlated: [], pending: [], meta: {}, ...fields }
+}
 const ids = (items: { id?: string; key?: string }[]) => items.map(item => item.id ?? item.key).sort()
 it('reads the working sets alone, in SQLite as in memory, and follows each save', () => {
   const store = new Store(join(directory, 'orchestrator.sqlite'))
@@ -113,7 +116,7 @@ it('counts triggers per Source and lists them newest first, optionally only the 
 it('links a Thread to the page its Source named, or else to the message that started it', () => {
   const store = new Store(join(directory, 'links.sqlite'))
   const thread = (keyValue: string, source: string, id: string, meta: Record<string, unknown> = {}) => store.threads.save({ key: keyValue, ref: { source, id }, createdAt: '', subscriptions: [], correlated: [], pending: [], meta })
-  thread('github:acme/widgets#7', 'github', '7', { url: 'https://github.com/acme/widgets/pull/7' })
+  thread('github:acme/widgets#7', 'github', 'acme/widgets#7', { url: 'https://github.com/acme/widgets/pull/7' })
   thread('feishu:oc_1:om_1', 'feishu', 'oc_1:om_1')
   store.triggers.save({ id: 'f1', source: 'feishu', threads: [{ source: 'feishu', id: 'oc_1:om_1' }], actor: { source: 'feishu', id: 'ou_a' }, human: true, at: '1', text: 'hi', url: 'https://applink.feishu.cn/client/message/link/open?token=t', meta: {} })
   expect(threadFacts(store, store.threads.get('github:acme/widgets#7')!).url).toBe('https://github.com/acme/widgets/pull/7')

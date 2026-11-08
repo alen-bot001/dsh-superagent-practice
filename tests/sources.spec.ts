@@ -344,7 +344,7 @@ describe('github source', () => {
     expect(commentTrigger({ id: 11, body: 'pushed', user: { login: 'Agent-Bot', type: 'User' } }, { repository: 'acme/widgets', number: 7, isPr: true }, 'conversation', 'agent-bot').human).toBe(false)
   })
   it('reads the address of an Issue, a PR or a review comment of the repository, and nothing else', () => {
-    expect(githubAddress('https://api.github.com/repos/acme/widgets/pulls/9', ['acme/widgets'])).toEqual({ number: 9, pr: true })
+    expect(githubAddress('https://api.github.com/repos/acme/widgets/pulls/9', ['acme/widgets'])).toEqual({ repository: 'acme/widgets', number: 9, pr: true })
     expect(githubAddress('https://api.github.com/repos/Acme/Widgets/issues/12', ['acme/widgets'])).toEqual({ number: 12, pr: false })
     expect(githubAddress('https://github.com/acme/widgets/pull/7/#discussion_r5', ['acme/widgets'])).toEqual({ number: 7, pr: true,
       discussion: 5 })
@@ -591,7 +591,7 @@ describe('github source', () => {
     expect(h.receive.mock.calls.map(([trigger]) => trigger.meta.number)).toEqual([13])
     // The cursor moved together with the Issue it does not cover yet.
     expect(Date.parse(h.store.get<string>('github-since')!)).toBeGreaterThan(Date.parse('2026-09-08T00:00:00.000Z'))
-    expect(h.store.get('github-retry')).toEqual({ 12: { since: '2026-09-08T00:00:00.000Z', pr: false, attempts: 1, failedAt: expect.any(String) } })
+    expect(h.store.get('github-retry')).toEqual({ 'acme/widgets#12': { since: '2026-09-08T00:00:00.000Z', pr: false, attempts: 1, failedAt: expect.any(String) } })
     expect(h.store.threads.get('github:acme/widgets#12')!.meta.pollError).toContain('Bad Gateway')
     Object.assign(routes, { notifications: [], 'issues/12': issue(12, { created_at: '2026-08-01T00:00:00Z' }),
       'issues/12/comments': [mention(2, 12, '2026-09-08T02:00:00Z')] })
@@ -619,7 +619,7 @@ describe('github source', () => {
     // GitHub also answers 404 for a private repository the agent lost access to: that is a failure read again.
     github(h, { notifications: [notification(16)] })
     await expect(pollRound(h)).rejects.toThrow('#16: Error: gh: Not Found (HTTP 404)')
-    expect(h.store.get('github-retry')).toEqual({ 16: expect.objectContaining({ pr: false }) })
+    expect(h.store.get('github-retry')).toEqual({ 'acme/widgets#16': expect.objectContaining({ pr: false }) })
     h.store.close()
   })
   it('skips and counts a notification or comment it cannot read, and names the count in the health', async () => {
@@ -665,10 +665,10 @@ describe('github source', () => {
     h.store.set('github-cursor:acme/widgets#16', '2026-09-01T00:00:00.000Z')
     github(h, { notifications: [notification(16)] })
     await expect(pollRound(h)).rejects.toThrow('#16: Error: gh: Not Found (HTTP 404)')
-    const first = h.store.get<Record<string, { failedAt: string; attempts: number }>>('github-retry')![16]!
+    const first = h.store.get<Record<string, { failedAt: string; attempts: number }>>('github-retry')!['acme/widgets#16']!
     expect(first).toMatchObject({ attempts: 1, failedAt: expect.any(String) })
     // However many reads failed, a day of failures has not passed: the read is retried, and the round still fails.
-    h.store.set('github-retry', { 16: { ...first, attempts: 99 } })
+    h.store.set('github-retry', { 'acme/widgets#16': { ...first, attempts: 99 } })
     github(h, { notifications: [] })
     await expect(pollRound(h)).rejects.toThrow('#16')
     // A day after the first failed read, it is dropped: its Thread keeps the error, the health names it, and the round does not

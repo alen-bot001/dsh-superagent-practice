@@ -516,7 +516,7 @@ it('keeps Issue Triggers stored before Issues arrived through notifications read
     pending: [], meta: {} })
   const read = await runTool(runtime.masterId, 'orchestrator_read', { resource: `trigger/${stored.id}` })
   expect(read).toMatchObject({ trigger_id: stored.id, source: 'github-issue', text: 'Bug\n\ndetails' })
-  const thread = (await api('GET', 'threads/github:5')).body
+  const thread = (await api('GET', 'threads/github:acme/widgets#5')).body
   expect(thread).toMatchObject({ timeline: [expect.objectContaining({ id: stored.id, source: 'github-issue' })] })
 })
 
