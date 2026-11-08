@@ -50,7 +50,7 @@ it('writes a schema 10 database in its current shape once, so nothing reads an o
   const ticket = {
     id: 't1', title: 'Fix', decisionId: 'd1', state: 'open', assignments: [], summary: '', createdAt: '1', updatedAt: '2',
     // In schema 10, a GitHub Channel without a comment link marked a PR that the ticket opened.
-    channels: [{ source: 'github', thread: 'github:acme/widgets#8', address: { number: '8' } }, { source: 'github', thread: 'github:acme/widgets#7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
+    channels: [{ source: 'github', thread: 'github:8', address: { number: '8' } }, { source: 'github', thread: 'github:7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
     mandate: mandate({ chatId: 'oc_team', direct: false, member: 'ou_alice', mention: true }),
     inputs: [{ id: 'i1', kind: 'reopen', decisionId: 'd2', at: '3' }, { id: 'i2', kind: 'reopen', decisionId: 'd0', at: '0' },
       { id: 'i3', kind: 'trigger', triggerId: 'trig-2', at: '4' }, { id: 'i4', kind: 'trigger', triggerId: 'ci-1', at: '5' }], undelivered: ['i1'],
@@ -125,8 +125,8 @@ it('writes a schema 10 database in its current shape once, so nothing reads an o
     origin: { triggerId: 'trig-1', triggerIds: ['trig-1', 'trig-2'] },
     execution: { name: 'fix-1', directory: '/w/fix-1', assignment: 'Read trigger/trig-1.' },
     delivery: { error: 'offline', at: '2' },
-    follows: [{ thread: 'github:acme/widgets#8', own: true, closed: { at: '2026-09-01T00:00:00Z', outcome: 'merged' } }, { thread: 'github:acme/widgets#7', own: false }],
-    channels: [{ source: 'github', thread: 'github:acme/widgets#7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
+    follows: [{ thread: 'github:8', own: true, closed: { at: '2026-09-01T00:00:00Z', outcome: 'merged' } }, { thread: 'github:7', own: false }],
+    channels: [{ source: 'github', thread: 'github:7', address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } }],
     answers: ['trig-3'],
     mandate: { basis: { via: 'listed', source: 'feishu', scope: { chatId: 'oc_team', direct: false }, sender: 'ou_alice', addressed: 'mention' } },
   })

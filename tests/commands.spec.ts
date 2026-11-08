@@ -91,6 +91,7 @@ describe('Channels', () => {
   })
   it('drop a GitHub reply to an Issue that is deleted or locked, and keep others for a retry', async () => {
     const value = commands()
+    vi.spyOn(value, 'for').mockReturnValue(value)
     vi.spyOn(value, 'pages').mockResolvedValue([])
     const gh = vi.spyOn(value, 'gh')
     for (const stderr of ['gh: This issue was deleted (HTTP 410)', 'gh: Unable to create comment because issue is locked. (HTTP 403)']) {
@@ -105,6 +106,7 @@ describe('Channels', () => {
   })
   it('reply on the PR\'s conversation when the review comment a reply points at is gone', async () => {
     const value = commands()
+    vi.spyOn(value, 'for').mockReturnValue(value)
     const pages = vi.spyOn(value, 'pages').mockResolvedValue([])
     const gh = vi.spyOn(value, 'gh')
       .mockRejectedValueOnce(commandError({ stderr: 'gh: Not Found (HTTP 404)', code: 1 })).mockResolvedValueOnce({})
