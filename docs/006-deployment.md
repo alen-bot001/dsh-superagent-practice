@@ -144,7 +144,7 @@ Check dsh-superagent: run `scripts/dsh-superagent --profile superagent status` i
 
 Setup must succeed before polling or work starts. Overview lists missing requirements and links to their settings. A settings change runs setup again. If you fix something outside the application, such as CLI authentication, choose **Check again**.
 
-1. **Sources.** Set the GitHub repository (`owner/name`) and agent CLI, for example `/home/me/.local/bin/gh-agent`. Requests normally arrive through the agent account's notifications. A new Issue or comment mentioning the account arrives on the next poll; adding a mention by editing an existing Issue body does not. Post a new comment instead. For Feishu, set the bot CLI, chats, each chat's receive-all or mentions-only mode, and whether to receive direct messages.
+1. **Sources.** Set the GitHub repositories (one `owner/name` per row, up to 20) and agent CLI, for example `/home/me/.local/bin/gh-agent`. Saving the Source checks that the agent account can push to every repository. Requests normally arrive through the agent account's notifications. A new Issue or comment mentioning the account arrives on the next poll; adding a mention by editing an existing Issue body does not. Post a new comment instead. For Feishu, set the bot CLI, chats, each chat's receive-all or mentions-only mode, and whether to receive direct messages.
 2. **Policy.** The two example rules can be edited or removed. Under **On each Source**, add the GitHub accounts and Feishu users who may ask for work; until a list has someone, no request can become a Ticket. With Feishu, a chat can be chosen to sync the list from, at startup and on **Sync now**.
 3. **Execution.** The directory root and a prepare command. To give each Ticket a checkout of the repository:
 
@@ -159,6 +159,16 @@ Setup must succeed before polling or work starts. Overview lists missing require
 
    Keep one clone per watched repository, named `owner__name`, and add the Ticket's worktree from that repository's own clone: a worktree inherits its clone's `remote.origin`, so worktrees of two repositories added to one shared clone would push to whichever repository was cloned first. The clone is made on first use, and re-running the command for a prepared workspace only fetches again. List personal CLIs, such as one signed in to your own account, as blocked commands.
 4. **Prompts.** Set the team sections: the GitHub disclosure line, review bots, the commit author and the auto-merge condition.
+
+### Multiple repositories
+
+The GitHub Source watches the repositories in its rows, so one deployment can serve several repositories. Each one keeps its own identity:
+
+- **Threads and cursors.** A Thread ID is `owner/name#12`, or `owner/name#ci:main` for default-branch CI, because two repositories that both number an Issue `#12` stay distinct. Read positions, CI fingerprints and retries are keyed by that ID, so one repository's read never advances another's. The notification cursor (`github-since`) stays account-wide, because `notifications` is an account-level list that the Source filters by repository itself.
+- **Prepare command.** Keep one clone per repository, named `owner__name` under the clone root, and add each Ticket's worktree from its own repository's clone — the command above does both.
+- **Notifications.** A round lists notifications for every watched repository and merges them. `lookbackSeconds` (60 to 3600, default 900) is how far each round reaches back before the cursor, and the `github-notices` ledger (30 days, at most 5000 IDs) drops the notifications already handled, so a notification GitHub publishes later than its `updated_at` is still read, and read only once.
+- **Migration.** Opening a database written by a single-repository version migrates it on startup to repository-scoped Thread keys, read cursors and retries (schema 12). The migration either completes or leaves the database file unchanged, so take a copy of the state directory first.
+- **Rollback.** Restore that copy together with the previous settings, then the previous code: the older code cannot read repository-scoped keys.
 
 ### Management API
 

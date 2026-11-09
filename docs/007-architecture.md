@@ -194,6 +194,10 @@ Plugins receive `SourceHost`: the registry and `context(kind)`. The kind itself 
 
 That context supplies deployment and commands, setup readiness (`ready`, `configured`, `problem`), configuration, `receive`, `atomic`, and typed `state`. It also exposes Thread reads and metadata writes, Ticket reads and binding/closure commands, Trigger reads, `notify` through Outbox, and `report` for declared health entries.
 
+### Several repositories
+
+A GitHub Source watches several repositories, and everything that names an Issue or a PR is keyed by its repository (`github:owner/name#12`, or `#ci:main` for default-branch CI), because two repositories number their Issues independently. `notifications` is an account-level list, so a round lists it once per repository, merges the results, and keeps the account-wide `github-since` cursor: every round reaches back `lookbackSeconds` before it and the `github-notices` ledger (ID to the round that read it) drops what it already handled, because GitHub publishes a notification later than its `updated_at`. The Executor prepares the workspace from the Ticket's own repository (`DSH_SUPERAGENT_GITHUB_REPOSITORY`), one clone per repository, so a worktree's `remote.origin` is its own repository.
+
 ### DshExecutor
 
 `DshExecutor` (`src/executor/dsh.ts`) provides one Session and directory per Ticket. `start` and `deliver` enqueue `launch` and `delivery` effects. `stop` cancels the turn through `Store.afterCommit`, so a rolled-back end does not stop the worker.
