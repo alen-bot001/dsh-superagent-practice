@@ -22,7 +22,7 @@ Both presets run with `danger-full-access` as the operator's OS user and read me
 
 - Node.js 22.19+ or 24+, pnpm, git 2.32+, Python 3.8+ and tmux
 - GitHub CLI (`gh`) 2.48 or later. Source CLI fields must point to `gh` or `lark-cli` wrappers; the host relies on their subcommands and output formats.
-- A repository on github.com; GitHub Enterprise Server is not supported. To create a checkout per Ticket, keep a local clone from which the prepare command can add worktrees. Install `git-lfs` if that repository uses Git LFS.
+- A repository on github.com; GitHub Enterprise Server is not supported. To create a checkout per Ticket, keep one local clone per watched repository, from which the prepare command can add worktrees so that each Ticket's remote is its own repository. Install `git-lfs` if that repository uses Git LFS.
 - A model provider configured for DeepSeek Harness. dsh-superagent uses the profile's default model unless the Eval or Execution settings name another.
 - For Feishu: `lark-cli` (tested with 1.0.90) and a Feishu or Lark app with a bot
 
@@ -149,11 +149,15 @@ Setup must succeed before polling or work starts. Overview lists missing require
 3. **Execution.** The directory root and a prepare command. To give each Ticket a checkout of the repository:
 
    ```sh
-   git -C /home/me/src/widgets fetch --no-tags "https://github.com/$DSH_SUPERAGENT_GITHUB_REPOSITORY.git" "${DSH_SUPERAGENT_GITHUB_PR_HEAD:-HEAD}:refs/dsh-superagent/$DSH_SUPERAGENT_TICKET" &&
-   git -C /home/me/src/widgets worktree add -b "agent/$DSH_SUPERAGENT_NAME" "$DSH_SUPERAGENT_DIR" "refs/dsh-superagent/$DSH_SUPERAGENT_TICKET"
+   root=/home/me/src
+   repo="$DSH_SUPERAGENT_GITHUB_REPOSITORY"
+   dir="$root/$(printf '%s' "$repo" | sed 's|/|__|g')"
+   [ -e "$dir/.git" ] || git clone --no-checkout "https://github.com/$repo.git" "$dir"
+   git -C "$dir" fetch --no-tags "https://github.com/$repo.git" "${DSH_SUPERAGENT_GITHUB_PR_HEAD:-HEAD}:refs/dsh-superagent/$DSH_SUPERAGENT_TICKET" &&
+   [ -e "$DSH_SUPERAGENT_DIR/.git" ] || git -C "$dir" worktree add -b "agent/$DSH_SUPERAGENT_NAME" "$DSH_SUPERAGENT_DIR" "refs/dsh-superagent/$DSH_SUPERAGENT_TICKET"
    ```
 
-   List personal CLIs, such as one signed in to your own account, as blocked commands.
+   Keep one clone per watched repository, named `owner__name`, and add the Ticket's worktree from that repository's own clone: a worktree inherits its clone's `remote.origin`, so worktrees of two repositories added to one shared clone would push to whichever repository was cloned first. The clone is made on first use, and re-running the command for a prepared workspace only fetches again. List personal CLIs, such as one signed in to your own account, as blocked commands.
 4. **Prompts.** Set the team sections: the GitHub disclosure line, review bots, the commit author and the auto-merge condition.
 
 ### Management API
