@@ -18,7 +18,7 @@ It asks one short question at a time, shows the full plan once, and then install
 
 ## Multiple repositories
 
-The GitHub Source watches the repositories in its rows, up to 20, so one deployment can serve several repositories. Each one keeps its own identity everywhere:
+The GitHub Source watches the repositories in its rows, up to 20, so one deployment can serve several repositories. Each Ticket still works in the repository of the Thread that started it, and each repository keeps its own identity everywhere. [009 Multi-repository support](docs/009-multi-repository.md) has the design and implementation; in short:
 
 - **Threads.** A Thread is `github:owner/name#12`, or `github:owner/name#ci:main` for default-branch CI, because two repositories that both number an Issue `#12` hold two different conversations. A Thread ID written before IDs named a repository (`12`, `ci:main`) still parses, under the repository the migration read from its records. Read positions, CI fingerprints and retries are keyed the same way.
 - **One clone per repository.** The prepare command keeps a clone per repository, named `owner__name` under the clone root, and adds each Ticket's worktree from its own repository's clone. A worktree inherits its clone's `remote.origin`, so a shared clone would push every Ticket to whichever repository was cloned first. [docs/006-deployment.md](docs/006-deployment.md) has the command.
@@ -38,6 +38,7 @@ Read the numbered documents in order; each builds only on the ones before it.
 - [006 Deployment](docs/006-deployment.md): manual setup, configuration, upgrades and troubleshooting
 - [007 Architecture](docs/007-architecture.md)
 - [008 Cookbook](docs/008-cookbook.md): adding a Source
+- [009 Multi-repository support](docs/009-multi-repository.md): design and implementation of watching several repositories
 
 ## Development
 
