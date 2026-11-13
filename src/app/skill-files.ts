@@ -1,4 +1,5 @@
 /** Loads packaged built-in skill definitions and prompt templates from disk. */
+import { namespaced } from '../identity.ts'
 import { readFileSync } from 'node:fs'
 import { packagePath } from '../infra/paths.ts'
 /**
@@ -21,12 +22,17 @@ function load(name: string) {
   if (!match) throw new Error(`Invalid packaged skill: ${path}`)
   return { name: match[1]!, description: match[2]!, content: match[3]!, path }
 }
-export const bundledSkills = { feishu: load('feishu'), github: load('github') }
+const rawSkills = { feishu: load('feishu'), github: load('github') }
+/** Skill text the agent reads, with this installation's tool namespace applied. */
+export const bundledSkills = { feishu: { ...rawSkills.feishu, content: namespaced(rawSkills.feishu.content) },
+  github: { ...rawSkills.github, content: namespaced(rawSkills.github.content) } }
 /**
  * Loads a built-in prompt file (`prompts/<name>.md`). Source `.md` files are written one sentence per line for
  * readable diffs; `promptFile` joins lines within each paragraph with spaces while keeping blank-line paragraph breaks.
  */
-export function promptFile(name: string): string {
+function rawPromptFile(name: string): string {
   const paragraphs = packaged('prompts', `${name}.md`).text.trim().split(/\n(?:[ \t]*\n)+/)
   return paragraphs.map(paragraph => paragraph.split('\n').map(line => line.trim()).join(' ')).join('\n')
 }
+/** The built-in prompt text of `name`, with this installation's tool namespace applied. */
+export const promptFile = (name: string): string => namespaced(rawPromptFile(name))

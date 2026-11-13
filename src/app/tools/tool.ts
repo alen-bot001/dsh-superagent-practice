@@ -1,3 +1,4 @@
+import { toolName } from '../../identity.ts'
 /** Shared tool primitives and schemas for the main and executor Sessions. */
 import { z } from 'zod'
 import { IM_WORDS, wordCount } from '../../infra/text.ts'
@@ -22,7 +23,7 @@ export const AcknowledgementSchema = z.string().trim().min(1)
 export function readTool(description: string, executor: boolean,
   read: (resource: string, offset: number, limit: number | undefined, signal: AbortSignal) => Promise<unknown>): Tool {
   return tool({
-    name: 'orchestrator_read',
+    name: toolName('read'),
     description,
     schema: z.object({
       resource: z.string().min(1).describe(`The resource, one of: ${resourceGrammar(executor)}.`),

@@ -1,4 +1,5 @@
 /** Application composition root and lifecycle manager for dsh-superagent. */
+import { serviceName } from '../identity.ts'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -85,7 +86,7 @@ export class Runtime extends Service implements SourceHost {
   /** Non-zero while a main-Session tool is executing an Engine command, suppressing self-triggered domain event notices. */
   private quiet = 0
   constructor(ctx: Context, readonly machine: Machine, restart: () => void) {
-    super(ctx, 'orchestrator')
+    super(ctx, serviceName)
     const runtime = this
     // Lock the state directory before opening the database so another process cannot migrate or write concurrently.
     mkdirSync(machine.stateDir, { recursive: true, mode: 0o700 })

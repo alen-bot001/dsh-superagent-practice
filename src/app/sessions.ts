@@ -1,4 +1,5 @@
 /** Lifecycle, prompt/tool/skill decoration, message delivery, and budget retry tracking for orchestrator and worker DSH sessions. */
+import { namespaced } from '../identity.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
@@ -205,7 +206,7 @@ export class Sessions {
   /** Returns a tool registrar for `agent` that renders tool output as JSON text and attaches `output.image` as an image when present. */
   private registerTool(agent: Agent, binding: SessionBinding): RegisterTool {
     return (name, description, schema, execute) => {
-      binding.disposers.push(agent.ctx.tools.register({ name, description, parameters: z.toJSONSchema(schema),
+      binding.disposers.push(agent.ctx.tools.register({ name, description: namespaced(description), parameters: z.toJSONSchema(schema),
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => {
           const text = { type: 'text' as const, text: JSON.stringify(value) }
           const image = value && typeof value === 'object' && 'image' in value ? (value as { image: never }).image : undefined

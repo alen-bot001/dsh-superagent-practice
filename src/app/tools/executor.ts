@@ -1,3 +1,4 @@
+import { toolName } from '../../identity.ts'
 /** Executor Session tools for reading ticket context, acknowledging requests, managing threads, handing back out-of-scope triggers, and reporting status. */
 import { z } from 'zod'
 import { liveTicket, type EngineForExecutor, type Ticket } from '../../core/index.ts'
@@ -27,7 +28,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
     readTool('Read one page of a resource of this ticket that the resource parameter lists. Follow next_offset, and next_resource where a page names one.',
       true, (resource, offset, limit, signal) => readResource(host.resources, resource, offset, limit, ticketId, signal)),
     tool({
-      name: 'orchestrator_ack',
+      name: toolName('ack'),
       description: 'Acknowledge one original human request before substantial work, as the replies section says; it posts as a reply to that message.',
       schema: z.object({
         trigger_id: z.string(),
@@ -40,7 +41,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
       },
     }),
     tool({
-      name: 'orchestrator_thread_unrelated',
+      name: toolName('thread_unrelated'),
       description: 'Stop following an attached thread that is not about this ticket, as the work section says; its own threads cannot be dropped.',
       schema: z.object({
         thread: z.string().min(1).describe('The thread key, which trigger/<id> of one of its messages shows as thread, such as feishu:<chat>:<root> or github:<number>.'),
@@ -49,7 +50,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
       execute: async args => { host.engine.markUnrelated(ticketId, args.thread, args.reason); return { removed: true, thread: args.thread } },
     }),
     tool({
-      name: 'orchestrator_thread_follow',
+      name: toolName('thread_follow'),
       description: 'Follow a related thread, such as an Issue or another PR, for context only.',
       schema: z.object({
         thread: z.string().describe('Thread key, such as github:<number>.'),
@@ -64,7 +65,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
       }),
     }),
     tool({
-      name: 'orchestrator_trigger_handback',
+      name: toolName('trigger_handback'),
       description: 'Hand back a message that asks for work beyond this ticket or for another one, for a fresh assessment; once per message. queued is false while another ticket still decides it, and for a message that was never this ticket\'s to decide, such as a bot\'s, which is assessed without it.',
       schema: z.object({
         trigger_id: z.string().min(1),
@@ -73,7 +74,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
       execute: async args => ({ trigger_id: args.trigger_id, queued: host.engine.handback(ticketId, args.trigger_id, args.reason) }),
     }),
     tool({
-      name: 'orchestrator_report',
+      name: toolName('report'),
       description: 'Report progress, ready, blocked, failed or dropped, as the work and handoff sections say.',
       schema: z.object({
         state: z.enum(['progress', 'ready', 'blocked', 'failed', 'dropped']),

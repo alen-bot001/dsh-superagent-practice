@@ -174,7 +174,7 @@ The GitHub Source watches the repositories in its rows, so one deployment can se
 
 The panel uses a local HTTP API that agents can also call. `SETUP.md` uses it to save settings, and the service script reads `GET state`.
 
-Send requests to `http://127.0.0.1:<port>/orchestrator/api/` with `x-orchestrator-request: 1`. The host must be `127.0.0.1:<port>` or `localhost:<port>`. Missing headers or an `Origin` from another site receive 403.
+Send requests to `http://127.0.0.1:<port>/orchestrator/api/` (a namespaced build answers on `/orchestrator-<namespace>/api/`, see `src/identity.ts`) with `x-orchestrator-request: 1`. The host must be `127.0.0.1:<port>` or `localhost:<port>`. Missing headers or an `Origin` from another site receive 403.
 
 API saves have the panel's permissions. They can change execution environment and setup account fields, unlike saves made through the main Session's tools.
 

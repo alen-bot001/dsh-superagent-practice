@@ -1,4 +1,5 @@
 /** Same-origin client and polling hook for the orchestrator management API. */
+import { routeBase } from '../identity.ts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Api, ApiRequest, ApiResponse } from '../app/api.ts'
 import { USER_ERRORS, type UserErrorCode } from '../core/errors.ts'
@@ -34,7 +35,7 @@ async function api<T>(messages: ApiMessages, path: string, method: string, body?
   let response: Response
   const json = body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
   try {
-    response = await fetch(`/orchestrator/api/${path}`, { method, ...json, headers: { 'x-orchestrator-request': '1', ...json.headers } })
+    response = await fetch(`${routeBase}/api/${path}`, { method, ...json, headers: { 'x-orchestrator-request': '1', ...json.headers } })
   } catch {
     throw new ApiError(messages.offline, 0, { unreachable: true })
   }

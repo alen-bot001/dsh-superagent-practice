@@ -27,6 +27,19 @@ CONTROL = ARTIFACTS / 'control'
 KEEP_LOGS = 20
 
 
+def route_base():
+    """This installation's management route; a namespaced build answers on its own prefix."""
+    try:
+        name = json.loads((ROOT / 'package.json').read_text()).get('name') or 'dsh-superagent'
+    except (OSError, ValueError):
+        name = 'dsh-superagent'
+    suffix = name[len('dsh-superagent-'):] if name.startswith('dsh-superagent-') else ''
+    return '/orchestrator' + (f'-{suffix}' if suffix else '')
+
+
+ROUTE = route_base()
+
+
 def control(profile):
     """Return the control directory for `profile`, creating it if needed."""
     directory = CONTROL / 'profiles' / profile
@@ -80,7 +93,7 @@ def processes(profile):
 
 def state(url):
     """Fetch health and setup status from the management API, or return None if unreachable."""
-    request = urllib.request.Request(url.rstrip('/') + '/orchestrator/api/state',
+    request = urllib.request.Request(url.rstrip('/') + ROUTE + '/api/state',
                                      headers={'x-orchestrator-request': '1'})
     try:
         with urllib.request.urlopen(request, timeout=2) as response:

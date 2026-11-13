@@ -1,4 +1,5 @@
 /** GitHub source kind definition, notification and repository polling loops, and Cordis plugin entry. */
+import { serviceName, sourceHost } from '../identity.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { key, type Thread } from '../core/index.ts'
 import { sameName } from '../infra/text.ts'
@@ -134,11 +135,11 @@ export const githubKind: SourceKind<GithubConfig> = {
   } : {},
 }
 export const name = 'dsh-superagent-github'
-export const inject = ['orchestrator']
+export const inject = [serviceName]
 export function apply(ctx: Context): void {
-  ctx.effect(() => ctx.orchestrator.sources.register(githubKind), 'github: source kind')
+  ctx.effect(() => sourceHost(ctx).sources.register(githubKind), 'github: source kind')
   ctx.effect(() => {
-    const source = sourceContext(ctx.orchestrator, githubKind)
+    const source = sourceContext(sourceHost(ctx), githubKind)
     const controller = new AbortController()
     // Unhandled rejections terminate the DSH process, so a failure escaping the polling loop is reported as source health instead.
     const running = watch(source, controller.signal)

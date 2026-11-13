@@ -621,3 +621,20 @@ Point `DSH_HOME` at a temporary directory and create a new profile there. Copy t
 
 - Trust: which Trigger fields are trusted, such as the Source's actor and Thread membership, and which are not, such as the body and quotes.
 - Deployment isolation: the agent's profile on its own pinned DeepSeek Harness installation, so upgrading DeepSeek Harness elsewhere does not break it.
+
+## Installation namespace
+
+`src/identity.ts` holds this build's namespace and derives every name an installation claims:
+
+| Name | Derived from | Example (`NAMESPACE = 'gerrit'`) |
+|---|---|---|
+| Cordis service a Source injects | `serviceName` | `orchestrator-gerrit` |
+| Main-Session tool names | `toolName(verb)` | `orchestrator_gerrit_route` |
+| Management web route | `routeBase` | `/orchestrator-gerrit` |
+
+Tool names written in built-in prompt text, bundled skill text, tool descriptions and user-facing
+messages pass through `namespaced()` when they are read, so the text always names the tools this
+installation actually registers. An empty `NAMESPACE` reproduces the names of earlier releases,
+which is what the GitHub build uses; a second build in the same DSH process sets its own namespace
+so both installations can run side by side. Source plugins reach the instance through
+`sourceHost(ctx)` rather than a fixed `ctx.orchestrator`.

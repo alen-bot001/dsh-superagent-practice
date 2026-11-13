@@ -1,4 +1,5 @@
 /** Loopback-only management HTTP routes with same-origin enforcement for the web panel. */
+import { routeBase } from '../identity.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -234,15 +235,15 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
   if (ctx.webServer.host !== '127.0.0.1') throw new Error('Orchestrator management requires a loopback Web server')
   const table = routes(runtime)
   const disposers = [
-    ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {
+    ctx.webServer.register({ kind: 'prefix', path: routeBase, handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
       // The raw path, not `url.pathname`: a Thread ID names its repository with `#`, which a URL reads as a fragment.
       const path = (req.url ?? '/').split('?')[0] ?? '/'
-      if (!path.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
+      if (!path.startsWith(`${routeBase}/api/`)) { res.writeHead(404); res.end(); return }
       if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
       try {
         await runtime.ready
-        const route = match(table, req.method ?? 'GET', path.slice('/orchestrator/api/'.length).split('/'))
+        const route = match(table, req.method ?? 'GET', path.slice(`${routeBase}/api/`.length).split('/'))
         if (!route) throw new RouteError(404, 'Unknown operation')
         const query = Object.fromEntries(url.searchParams)
         json(res, 200, await route.run({ params: route.params as never, query, body: maxBytes => readBody(req, maxBytes) }))

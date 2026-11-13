@@ -1,4 +1,5 @@
 /** Feishu source kind definition, policy synchronization, and Cordis plugin entry. */
+import { serviceName, sourceHost } from '../identity.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import { FeishuBotSchema } from '../deployment.ts'
@@ -128,12 +129,12 @@ export const feishuKind: SourceKind<FeishuConfig> = {
 export const feishuSettings = (sources: SourceRegistry): FeishuConfig => sources.instance<FeishuConfig>(SOURCE)?.config ?? FeishuConfigSchema.parse({})
 
 export const name = 'dsh-superagent-feishu'
-export const inject = ['orchestrator']
+export const inject = [serviceName]
 export function apply(ctx: Context): void {
-  ctx.effect(() => ctx.orchestrator.sources.register(feishuKind), 'feishu: source kind')
+  ctx.effect(() => sourceHost(ctx).sources.register(feishuKind), 'feishu: source kind')
   ctx.effect(() => {
     const controller = new AbortController()
-    const running = runFeishu(sourceContext(ctx.orchestrator, feishuKind), controller.signal)
+    const running = runFeishu(sourceContext(sourceHost(ctx), feishuKind), controller.signal)
     return async () => { controller.abort(); await running }
   })
 }

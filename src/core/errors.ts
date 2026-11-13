@@ -1,4 +1,5 @@
 /** User-facing error codes mapped to their category ('missing' or 'refused') and English message template. */
+import { namespaced } from '../identity.ts'
 export const USER_ERRORS = {
   unknownTicket: ['missing', 'Unknown ticket'],
   unknownProblem: ['missing', 'Unavailable Eval not found'],
@@ -54,7 +55,8 @@ export type UserErrorCode = keyof typeof USER_ERRORS
 export class UserError extends Error {
   readonly missing: boolean
   constructor(readonly code: UserErrorCode, readonly values: Record<string, string> = {}) {
-    const [kind, text] = USER_ERRORS[code]
+    const [kind, raw] = USER_ERRORS[code]
+    const text = namespaced(raw)
     super(text.replace(/\{(\w+)\}/g, (match, name: string) => values[name] ?? match))
     this.missing = kind === 'missing'
   }

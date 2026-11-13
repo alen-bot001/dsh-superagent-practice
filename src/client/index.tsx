@@ -1,4 +1,5 @@
 /** Browser plugin entry point registering the sidebar icon, main management panel, and Plugin Manager config view. */
+import { namespaced } from '../identity.ts'
 import { useCallback, useEffect, useRef } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -47,8 +48,13 @@ function Mounted({ ctx, t }: { ctx: ClientContext; t: T }) {
 
 export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace']
 /** Registers the panel, sidebar icon, and Plugin Manager config view; `configForms` is optional (without it, machine settings are read-only). */
+/** Copies a dictionary with this installation's tool namespace applied to every message. */
+const namespacedDict = <D,>(dict: D): D => Object.fromEntries(
+  Object.entries(dict as Record<string, readonly [string, string]>)
+    .map(([key, value]) => [key, [namespaced(value[0]), namespaced(value[1])]])) as D
+
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-superagent: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh: namespacedDict(zh), en: namespacedDict(en) }), 'dsh-superagent: dictionaries')
   const t = ctx.locale.bind(NS)
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID, locale: NS, inject: () => ({}) },
     (props: { t: T }) => <Mounted ctx={ctx} t={props.t} />))
