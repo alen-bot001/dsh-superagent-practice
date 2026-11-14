@@ -7,7 +7,7 @@ import { HEALTH_TEXT } from '../sources/host.ts'
 
 const TEXT = {
   // Shared
-  title: ['Superagent', 'Superagent'],
+  title: ['Superagent GitHub', 'Superagent GitHub'],
   close: ['关闭', 'Close'],
   cancel: ['取消', 'Cancel'],
   confirm: ['确定', 'Confirm'],
@@ -97,7 +97,7 @@ const TEXT = {
   sourceOff: ['已关闭', 'Off'],
   executorWaitingSetup: ['执行器等待部署检查', 'Executor waiting for the deployment check'],
   // Header, search, and tabs
-  panel: ['Superagent', 'Superagent'],
+  panel: ['Superagent GitHub', 'Superagent GitHub'],
   openMaster: ['打开主 Session', 'Open main Session'],
   pagesLabel: ['dsh-superagent 页面', 'dsh-superagent pages'],
   searchPlaceholder: ['搜索工单、线程、触发或链接', 'Search Tickets, Threads, Triggers or links'],
